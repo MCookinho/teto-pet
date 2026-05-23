@@ -230,10 +230,26 @@ class TetoPet(Gtk.Window):
         top_item.connect("toggled", self._toggle_ontop)
         menu.append(top_item)
 
-        ai_item = Gtk.CheckMenuItem.new_with_label("IA ativa (Hugging Face)")
-        ai_item.set_active(self.cfg.get("ai_enabled", True))
-        ai_item.connect("toggled", self._toggle_ai)
-        menu.append(ai_item)
+        ai_menu = Gtk.Menu()
+        ai_sub = Gtk.MenuItem.new_with_label("Provedor de IA")
+        ai_sub.set_submenu(ai_menu)
+
+        current = self.cfg.get("ai_provider", config.PROVIDER_AUTO)
+        group = []
+        for key, label in [
+            (config.PROVIDER_AUTO, "Automático"),
+            (config.PROVIDER_OLLAMA, "Ollama (local)"),
+            (config.PROVIDER_HF, "API (Hugging Face)"),
+            (config.PROVIDER_PHRASES, "Frases prontas"),
+        ]:
+            item = Gtk.RadioMenuItem.new_with_label(group, label)
+            if key == current:
+                item.set_active(True)
+            item.connect("activate", self._change_provider, key)
+            ai_menu.append(item)
+            group = [item]
+
+        menu.append(ai_sub)
 
         menu.append(Gtk.SeparatorMenuItem())
 
@@ -271,9 +287,10 @@ class TetoPet(Gtk.Window):
         self.set_keep_above(item.get_active())
         config.save(self.cfg)
 
-    def _toggle_ai(self, item):
-        self.cfg["ai_enabled"] = item.get_active()
-        config.save(self.cfg)
+    def _change_provider(self, item, provider):
+        if item.get_active():
+            self.cfg["ai_provider"] = provider
+            config.save(self.cfg)
 
     def _show_about(self, _item=None):
         about = Gtk.AboutDialog()

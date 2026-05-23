@@ -5,7 +5,7 @@ import socket
 import requests
 from gi.repository import GLib
 
-from teto_pet import phrases
+from teto_pet import phrases, config
 
 SYSTEM = (
     "You are Kasane Teto, an energetic and playful UTAU vocaloid. "
@@ -14,41 +14,75 @@ SYSTEM = (
     "You are a desktop companion and best friend."
 )
 
-API_TIMEOUT = 10
-
 
 def ask(message, history=None, callback=None):
     if not history:
         history = []
+    p = config.load().get("ai_provider", config.PROVIDER_AUTO)
+    return ask_with_provider(p, message, history, callback)
+
+
+def ask_with_provider(provider, message, history, callback=None):
+    if not history:
+        history = []
     if callback is None:
-        return _try_all(message, history)
+        return _run_provider(provider, message, history)
     thread = threading.Thread(
-        target=lambda: GLib.idle_add(callback, _try_all(message, history)),
+        target=lambda: GLib.idle_add(callback, _run_provider(provider, message, history)),
         daemon=True,
     )
     thread.start()
 
 
-def _try_all(message, history):
-    reply = _ask_ollama(message, history)
-    if reply:
-        return reply
+def _run_provider(provider, message, history):
+    if provider == config.PROVIDER_AUTO:
+        reply = _ask_ollama(message, history)
+        if reply:
+            return reply
+        reply = _ask_hf(message, history)
+        if reply:
+            return reply
+        print("[teto-pet] All providers failed, using phrases", file=sys.stderr)
+        return phrases.get_fallback(message)
 
-    reply = _ask_hf(message, history)
-    if reply:
-        return reply
+    if provider == config.PROVIDER_OLLAMA:
+        reply = _ask_ollama(message, history)
+        if reply:
+            return reply
+        print("[teto-pet] Ollama failed, using phrases", file=sys.stderr)
+        return phrases.get_fallback(message)
 
-    print("[teto-pet] All AIs failed, using fallback phrases", file=sys.stderr)
+    if provider == config.PROVIDER_HF:
+        reply = _ask_hf(message, history)
+        if reply:
+            return reply
+        print("[teto-pet] Hugging Face failed, using phrases", file=sys.stderr)
+        return phrases.get_fallback(message)
+
     return phrases.get_fallback(message)
 
 
-def _domain_reachable(host, timeout=3):
+def _resolve(host, timeout=3):
+    """Try system DNS, fallback to Cloudflare DoH."""
     try:
         socket.setdefaulttimeout(timeout)
         socket.gethostbyname(host)
         return True
     except OSError:
-        return False
+        pass
+    try:
+        resp = requests.get(
+            f"https://cloudflare-dns.com/dns-query?name={host}&type=A",
+            headers={"Accept": "application/dns-json"},
+            timeout=timeout,
+        )
+        if resp.status_code == 200:
+            for a in resp.json().get("Answer", []):
+                if a.get("type") == 1:
+                    return True
+    except requests.RequestException:
+        pass
+    return False
 
 
 def _ask_ollama(message, history):
@@ -64,8 +98,10 @@ def _ask_ollama(message, history):
     try:
         resp = requests.post(
             "http://localhost:11434/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False,
-                  "options": {"num_predict": 80, "temperature": 0.8}},
+            json={
+                "model": model, "prompt": prompt, "stream": False,
+                "options": {"num_predict": 80, "temperature": 0.8},
+            },
             timeout=15,
         )
         if resp.status_code == 200:
@@ -79,7 +115,6 @@ def _ask_ollama(message, history):
                 return text
     except requests.RequestException as e:
         print(f"[teto-pet] Ollama error: {e}", file=sys.stderr)
-
     return None
 
 
@@ -91,11 +126,7 @@ def _ollama_model():
         models = resp.json().get("models", [])
         if not models:
             return None
-        # prefer smaller models first (faster responses)
-        model_names = [m["name"] for m in models]
-        # pick the smallest (or first) model
-        model_names.sort(key=lambda n: n)
-        chosen = model_names[0]
+        chosen = sorted(m["name"] for m in models)[0]
         print(f"[teto-pet] Ollama detectado: {chosen}", file=sys.stderr)
         return chosen
     except requests.RequestException:
@@ -103,33 +134,32 @@ def _ollama_model():
 
 
 def _ask_hf(message, history):
-    if not _domain_reachable("api-inference.huggingface.co"):
+    if not _resolve("api-inference.huggingface.co"):
         print("[teto-pet] HuggingFace domain unreachable, skipping", file=sys.stderr)
         return None
 
     models = [
-        "HuggingFaceH4/zephyr-7b-beta",
-        "microsoft/DialoGPT-medium",
+        ("HuggingFaceH4/zephyr-7b-beta", "zephyr"),
+        ("microsoft/DialoGPT-medium", "default"),
     ]
 
-    for model in models:
-        prompt = _build_prompt(model, message, history)
+    for model_id, fmt in models:
+        prompt = _build_prompt(fmt, message, history)
         try:
             resp = requests.post(
-                f"https://api-inference.huggingface.co/models/{model}",
-                json={"inputs": prompt, "parameters": _params(model)},
-                timeout=API_TIMEOUT,
+                f"https://api-inference.huggingface.co/models/{model_id}",
+                json={"inputs": prompt, "parameters": _params(fmt)},
+                timeout=10,
                 headers={"User-Agent": "teto-pet/1.0"},
             )
         except requests.RequestException as e:
-            print(f"[teto-pet] HF {model} error: {e}", file=sys.stderr)
+            print(f"[teto-pet] HF {model_id} error: {e}", file=sys.stderr)
             continue
 
         if resp.status_code == 503:
-            print(f"[teto-pet] HF {model} loading (503)", file=sys.stderr)
+            print(f"[teto-pet] HF {model_id} loading (503)", file=sys.stderr)
             continue
         if resp.status_code != 200:
-            print(f"[teto-pet] HF {model} status {resp.status_code}", file=sys.stderr)
             continue
 
         try:
@@ -148,15 +178,15 @@ def _ask_hf(message, history):
     return None
 
 
-def _params(model):
+def _params(fmt):
     base = {"max_new_tokens": 60, "temperature": 0.8, "top_p": 0.9, "do_sample": True}
-    if "DialoGPT" in model:
+    if fmt == "default":
         base["max_new_tokens"] = 80
     return base
 
 
-def _build_prompt(model, message, history):
-    if "zephyr" in model:
+def _build_prompt(fmt, message, history):
+    if fmt == "zephyr":
         p = f"<|system|>\n{SYSTEM}\n"
         for h in history[-6:]:
             role = h["role"]

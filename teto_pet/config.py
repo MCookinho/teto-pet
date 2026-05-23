@@ -4,30 +4,41 @@ import os
 CONFIG_DIR = os.path.expanduser("~/.config/teto-pet")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
+PROVIDER_AUTO = "auto"
+PROVIDER_OLLAMA = "ollama"
+PROVIDER_HF = "huggingface"
+PROVIDER_PHRASES = "phrases"
+
+PROVIDERS = [PROVIDER_AUTO, PROVIDER_OLLAMA, PROVIDER_HF, PROVIDER_PHRASES]
+
 DEFAULT_CONFIG = {
     "window_x": 100,
     "window_y": 100,
     "always_on_top": True,
-    "ai_enabled": True,
-    "ai_provider": "huggingface",
-    "ai_endpoint": "http://localhost:11434/api/generate",
-    "ai_model": "llama3.2",
+    "ai_provider": PROVIDER_AUTO,
     "language": "pt",
 }
 
 
 def load():
+    cfg = dict(DEFAULT_CONFIG)
+
     if not os.path.exists(CONFIG_FILE):
-        return dict(DEFAULT_CONFIG)
+        return cfg
 
     try:
         with open(CONFIG_FILE) as f:
-            cfg = json.load(f)
-            merged = dict(DEFAULT_CONFIG)
-            merged.update(cfg)
-            return merged
+            saved = json.load(f)
+        for k in cfg:
+            if k in saved:
+                cfg[k] = saved[k]
+        # migrate old config: ai_enabled=False  ->  provider=phrases
+        if "ai_enabled" in saved and not saved["ai_enabled"]:
+            cfg["ai_provider"] = PROVIDER_PHRASES
     except (json.JSONDecodeError, OSError):
-        return dict(DEFAULT_CONFIG)
+        pass
+
+    return cfg
 
 
 def save(cfg):
