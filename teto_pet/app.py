@@ -28,8 +28,8 @@ class TetoPet(Gtk.Window):
 
         fw = 128 // self.character.num_frames
         fh = 32
-        scale = 5
-        self.set_default_size(fw * scale, fh * scale + 40)
+        scale = 7
+        self.set_default_size(fw * scale, fh * scale + 50)
         self.set_resizable(False)
         self.set_app_paintable(True)
         self.set_decorated(False)
@@ -152,10 +152,10 @@ class TetoPet(Gtk.Window):
         cr.stroke()
 
         cr.set_source_rgba(0.1, 0.1, 0.1, 0.95)
-        cr.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-        cr.set_font_size(12)
+        cr.select_font_face("Pixelify Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+        cr.set_font_size(14)
         for i, line in enumerate(lines):
-            cr.move_to(bub_x + pad_x, bub_y + pad_y + i * lh + 12)
+            cr.move_to(bub_x + pad_x, bub_y + pad_y + i * lh + 13)
             cr.show_text(line)
 
         cr.restore()
