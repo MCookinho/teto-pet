@@ -4,7 +4,7 @@ from gi.repository import Gtk, Pango, GObject
 
 from teto_pet import ai, config
 from teto_pet.character import Mood
-from teto_pet.tools import TOOLS
+from teto_pet.tools import TOOLS, TOOL_KEYWORDS
 
 
 def _detect_mood(text):
@@ -93,33 +93,49 @@ class ChatWindow(Gtk.Window):
         return row
 
     def _run_tool(self, text):
-        cfg = config.load()
-        if not cfg.get("assistente_local", False):
-            return None
-
         lower = text.lower()
+        cfg = config.load()
+        permitted = cfg.get("assistente_local", False)
+
+        # detect which tool is being requested
+        tool_name = None
+        tool_args = {}
 
         if re.search(r'(print|captura|tira|foto|tela|screenshot)', lower):
-            result = TOOLS["screenshot"]["execute"]()
-            return f"📸 Print da tela:\n\n{result[:100]}" if not result.startswith("Erro") else result
+            tool_name = "screenshot"
 
         m = re.search(r'(?:ler|abrir|mostrar|ver|exibir|pegar|conteudo)\s+(?:o\s+)?(?:arquivo\s+)?([^\s].*)', text, re.I)
         if m:
-            path = m.group(1).strip().strip('"\'')
-            tool = TOOLS.get("read_file")
-            if tool:
-                result = tool["execute"](path)
-                return f"Aqui está o conteúdo de `{path}`:\n\n{result}"
+            tool_name = "read_file"
+            tool_args["path"] = m.group(1).strip().strip('"\'')
 
-        m = re.search(r'(?:listar|lista|mostrar|ver|exibir)\s+(?:a\s+)?(?:pasta|diretorio|dir|arquivos)\s+(.+)$', text, re.I)
-        if m:
-            path = m.group(1).strip().strip('"\'')
-            tool = TOOLS.get("list_files")
-            if tool:
-                result = tool["execute"](path)
-                return f"Aqui está o conteúdo de `{path}`:\n\n{result}"
+        if not tool_name:
+            m = re.search(r'(?:listar|lista|mostrar|ver|exibir)\s+(?:a\s+)?(?:pasta|diretorio|dir|arquivos)\s+(.+)$', text, re.I)
+            if m:
+                tool_name = "list_files"
+                tool_args["path"] = m.group(1).strip().strip('"\'')
 
-        return None
+        if not tool_name:
+            return None
+
+        if not permitted:
+            return ("Hmm, não tenho permissão pra fazer isso! 🛡️\n"
+                    "Ative o **Assistente Local** no menu de contexto "
+                    "(botão direito na Teto) e tente de novo!")
+
+        tool = TOOLS.get(tool_name)
+        if not tool:
+            return None
+
+        result = tool["execute"](**tool_args)
+        if result.startswith("Erro") or result.startswith("Não consegui") or result.startswith("Sem permissão"):
+            return f"Hmm, deu ruim: {result}"
+
+        if tool_name == "screenshot":
+            return f"📸 Print da tela capturado!"
+        if tool_name == "read_file":
+            return f"Aqui está o conteúdo de `{tool_args['path']}`:\n\n{result}"
+        return f"Aqui está o conteúdo de `{tool_args['path']}`:\n\n{result}"
 
     def _on_send(self, _widget=None):
         text = self.entry.get_text().strip()

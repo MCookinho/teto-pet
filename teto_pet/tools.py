@@ -1,6 +1,8 @@
 import os
 import io
 import base64
+import subprocess
+import tempfile
 
 from PIL import ImageGrab
 
@@ -20,6 +22,8 @@ def read_file(path):
         if size > MAX_FILE_CHARS:
             content = content[:MAX_FILE_CHARS] + f"\n\n... (truncado, {size} chars)"
         return content
+    except PermissionError:
+        return f"Sem permissão para ler {path}"
     except Exception as e:
         return f"Erro ao ler {path}: {e}"
 
@@ -35,18 +39,81 @@ def list_files(path="."):
             suffix = "/" if os.path.isdir(full) else ""
             items.append(f"{item}{suffix}")
         return "\n".join(items)
+    except PermissionError:
+        return f"Sem permissão para listar {path}"
     except Exception as e:
         return f"Erro ao listar {path}: {e}"
 
 
 def screenshot():
+    # Try PIL (X11)
     try:
         img = ImageGrab.grab()
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return base64.b64encode(buf.getvalue()).decode()
-    except Exception as e:
-        return f"Erro ao capturar tela: {e}"
+    except Exception:
+        pass
+
+    # Try grim (Wayland wlroots)
+    try:
+        result = subprocess.run(
+            ["grim", "-"], capture_output=True, timeout=5
+        )
+        if result.returncode == 0:
+            return base64.b64encode(result.stdout).decode()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Try gnome-screenshot (GNOME Wayland)
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmp = f.name
+        subprocess.run(
+            ["gnome-screenshot", "-f", tmp], capture_output=True, timeout=5
+        )
+        if os.path.getsize(tmp) > 0:
+            with open(tmp, "rb") as f:
+                data = base64.b64encode(f.read()).decode()
+            os.unlink(tmp)
+            return data
+        os.unlink(tmp)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Try import (ImageMagick, X11)
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmp = f.name
+        subprocess.run(
+            ["import", "-window", "root", tmp], capture_output=True, timeout=5
+        )
+        if os.path.getsize(tmp) > 0:
+            with open(tmp, "rb") as f:
+                data = base64.b64encode(f.read()).decode()
+            os.unlink(tmp)
+            return data
+        os.unlink(tmp)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Try spectacle (KDE)
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmp = f.name
+        subprocess.run(
+            ["spectacle", "-b", "-n", "-o", tmp], capture_output=True, timeout=5
+        )
+        if os.path.getsize(tmp) > 0:
+            with open(tmp, "rb") as f:
+                data = base64.b64encode(f.read()).decode()
+            os.unlink(tmp)
+            return data
+        os.unlink(tmp)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    return "Não consegui capturar a tela. Tenta instalar: grim (Wayland) ou gnome-screenshot"
 
 
 TOOLS = {
@@ -70,14 +137,17 @@ TOOLS = {
     },
 }
 
-TOOL_DESCRIPTION = """\
-Você tem acesso a estas ferramentas:
-- read_file(path): lê um arquivo de texto
-- list_files(path): lista arquivos de uma pasta
-- screenshot(): tira um print da tela
-
-Para usar, responda EXATAMENTE neste formato:
-{"tool": "nome_da_ferramenta", "args": {"param": "valor"}}
-Depois receberá o resultado e poderá continuar a conversa.
-Se não precisar de ferramenta, responda normalmente.
-"""
+TOOL_KEYWORDS = {
+    "read_file": [
+        "ler", "abrir", "mostrar", "ver", "exibir", "pegar", "conteudo",
+        "arquivo", "leia", "exiba", "abra",
+    ],
+    "list_files": [
+        "listar", "lista", "pasta", "diretorio", "dir", "arquivos",
+        "pastas", "diretório", "ls",
+    ],
+    "screenshot": [
+        "print", "captura", "tira", "foto", "tela", "screenshot",
+        "capturar", "tirar", "imagem",
+    ],
+}
