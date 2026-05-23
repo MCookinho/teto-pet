@@ -4,14 +4,9 @@ import random
 from gi.repository import Gtk, Gdk, GLib, cairo
 
 from teto_pet import config
-from teto_pet.character import Teto, Mood
+from teto_pet.character import Teto, Mood, FRAME_MS
 from teto_pet.chat import ChatWindow
 from teto_pet import phrases
-
-
-SCALE = 4
-BASE_W = 128
-BASE_H = 32
 
 
 class TetoPet(Gtk.Window):
@@ -31,9 +26,10 @@ class TetoPet(Gtk.Window):
         self.current_speech = None
         self.talking_timer = None
 
-        w = BASE_W * SCALE
-        h = BASE_H * SCALE + 40
-        self.set_default_size(w, h)
+        fw = 128 // self.character.num_frames
+        fh = 32
+        scale = 5
+        self.set_default_size(fw * scale, fh * scale + 40)
         self.set_resizable(False)
         self.set_app_paintable(True)
         self.set_decorated(False)
@@ -61,7 +57,13 @@ class TetoPet(Gtk.Window):
         self.connect("destroy", self._on_destroy)
 
         self.show_all()
+        GLib.timeout_add(FRAME_MS, self._anim_tick)
         GLib.timeout_add_seconds(45, self._random_speech)
+
+    def _anim_tick(self):
+        self.character.tick()
+        self.da.queue_draw()
+        return True
 
     def _random_speech(self):
         msgs = random.choice(list(phrases.FALLBACKS.values()))

@@ -6,9 +6,11 @@ import cairo
 import gi
 gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import GdkPixbuf, Gdk
+from gi.repository import GdkPixbuf, Gdk, GLib
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "teto")
+FPS = 8
+FRAME_MS = 1000 // FPS
 
 
 class Mood(Enum):
@@ -20,18 +22,17 @@ class Mood(Enum):
 
 MOOD_ORDER = [Mood.NORMAL, Mood.FELIZ, Mood.TRISTE, Mood.RAIVA]
 
-SPRITE_W = 128
-SPRITE_H = 32
-
 
 class Teto:
     def __init__(self):
         self.mood = Mood.NORMAL
         self.is_talking = False
-        self.sprites = {}
-        self._load_sprites()
+        self.frame = 0
+        self.num_frames = 1
+        self.frames = {}
+        self._load_sheets()
 
-    def _load_sprites(self):
+    def _load_sheets(self):
         os.makedirs(ASSETS_DIR, exist_ok=True)
         for mood in MOOD_ORDER:
             pair = {}
@@ -42,60 +43,98 @@ class Teto:
                     pb = GdkPixbuf.Pixbuf.new_from_file(path)
                     pair[variant or "normal"] = pb
                 except GLib.Error:
-                    pass
+                    continue
             if pair:
-                self.sprites[mood] = pair
+                self.frames[mood] = pair
+
+        if self.frames:
+            sample = next(iter(next(iter(self.frames.values())).values()))
+            self.num_frames = self._count_frames(sample)
+
+    def _count_frames(self, pb):
+        w = pb.get_width()
+        stride = pb.get_rowstride()
+        pixels = pb.get_pixels()
+
+        content_starts = []
+        in_content = False
+        for x in range(w):
+            has = False
+            for y in range(32):
+                if pixels[y * stride + x * 4 + 3] > 10:
+                    has = True
+                    break
+            if has and not in_content:
+                content_starts.append(x)
+                in_content = True
+            elif not has:
+                in_content = False
+
+        if len(content_starts) < 2:
+            return 1
+
+        spacing = content_starts[1] - content_starts[0]
+        return w // spacing
+
+    def _get_frame_pixbuf(self, sheet, frame_idx):
+        sw = sheet.get_width()
+        fw = sw // self.num_frames
+        return sheet.new_subpixbuf(
+            frame_idx * fw, 0, fw, sheet.get_height()
+        )
 
     @property
     def has_sprite(self):
-        return bool(self.sprites)
+        return bool(self.frames)
 
     def set_mood(self, mood):
-        if mood in self.sprites:
+        if mood in self.frames:
             self.mood = mood
 
     def set_talking(self, talking):
         self.is_talking = talking
 
+    def tick(self):
+        self.frame = (self.frame + 1) % self.num_frames
+
     def draw(self, cr, width, height):
-        pb = self._current_pixbuf()
+        pb = self._current_sheet()
         if pb is None:
             self._draw_fallback(cr, width, height)
             return
 
-        img_w = pb.get_width()
-        img_h = pb.get_height()
+        fw = pb.get_width() // self.num_frames
+        fh = pb.get_height()
+        frame_pb = self._get_frame_pixbuf(pb, self.frame)
 
-        scale = min(width / img_w, height / img_h, 4.0)
-        draw_w = int(img_w * scale)
-        draw_h = int(img_h * scale)
-        x = (width - draw_w) // 2
-        y = (height - draw_h) // 2
+        scale = min(width / fw, height / fh, 6.0)
+        dw = int(fw * scale)
+        dh = int(fh * scale)
+        x = (width - dw) // 2
+        y = (height - dh) // 2
 
-        scaled = pb.scale_simple(
-            draw_w, draw_h,
-            GdkPixbuf.InterpType.NEAREST,
+        scaled = frame_pb.scale_simple(
+            dw, dh, GdkPixbuf.InterpType.NEAREST
         )
-
         Gdk.cairo_set_source_pixbuf(cr, scaled, x, y)
         cr.paint()
 
-    def _current_pixbuf(self):
-        if self.mood not in self.sprites:
+    def _current_sheet(self):
+        if self.mood not in self.frames:
             for m in MOOD_ORDER:
-                if m in self.sprites:
+                if m in self.frames:
                     self.mood = m
                     break
             else:
                 return None
 
         key = "Falando" if self.is_talking else "normal"
-        sprites = self.sprites[self.mood]
-        if key in sprites:
-            return sprites[key]
-        if "normal" in sprites:
-            return sprites["normal"]
-        return next(iter(sprites.values()))
+        sheets = self.frames[self.mood]
+        if key in sheets:
+            return sheets[key]
+        if "normal" in sheets:
+            return sheets["normal"]
+        return next(iter(sheets.values()))
 
     def _draw_fallback(self, cr, width, height):
         cr.select_font_face("sans-serif", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
