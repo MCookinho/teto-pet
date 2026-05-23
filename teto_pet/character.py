@@ -97,7 +97,7 @@ class Teto:
     def tick(self):
         self.frame = (self.frame + 1) % self.num_frames
 
-    def draw(self, cr, width, height):
+    def draw(self, cr, width, height, dx=None, dy=None):
         pb = self._current_sheet()
         if pb is None:
             self._draw_fallback(cr, width, height)
@@ -110,8 +110,15 @@ class Teto:
         scale = min(width / fw, height / fh, 6.0)
         dw = int(fw * scale)
         dh = int(fh * scale)
-        x = (width - dw) // 2
-        y = (height - dh) // 2
+
+        if dx is None:
+            x = (width - dw) // 2
+        else:
+            x = dx
+        if dy is None:
+            y = (height - dh) // 2
+        else:
+            y = dy
 
         scaled = frame_pb.scale_simple(
             dw, dh, GdkPixbuf.InterpType.NEAREST

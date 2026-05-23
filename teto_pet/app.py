@@ -11,6 +11,17 @@ from teto_pet.chat import ChatWindow
 from teto_pet import phrases
 
 
+CHAR_SCALE = 5
+CHAR_X = 16
+CHAR_Y = 20
+BUBBLE_X = 180
+BUBBLE_W = 190
+BUBBLE_PAD = 12
+BUBBLE_MARGIN = 8
+WIN_W = BUBBLE_X + BUBBLE_W + BUBBLE_MARGIN
+WIN_H = 32 * CHAR_SCALE + 50
+
+
 class TetoPet(Gtk.Window):
 
     def __init__(self):
@@ -28,10 +39,7 @@ class TetoPet(Gtk.Window):
         self.current_speech = None
         self.talking_timer = None
 
-        fw = 128 // self.character.num_frames
-        fh = 32
-        scale = 7
-        self.set_default_size(fw * scale, fh * scale + 50)
+        self.set_default_size(WIN_W, WIN_H)
         self.set_resizable(False)
         self.set_app_paintable(True)
         self.set_decorated(False)
@@ -108,8 +116,8 @@ class TetoPet(Gtk.Window):
         cr.paint()
         cr.set_operator(cairo.Operator.OVER)
 
+        self.character.draw(cr, w, h, dx=CHAR_X, dy=CHAR_Y)
         self._draw_speech_bubble(cr, w)
-        self.character.draw(cr, w, h - 20)
 
         return True
 
@@ -120,36 +128,42 @@ class TetoPet(Gtk.Window):
         text = self.current_speech
         cr.save()
 
-        pad_x, pad_y = 12, 8
-        max_width = win_w - 24
-
         layout = PangoCairo.create_layout(cr)
         layout.set_text(text, -1)
-        fd = Pango.FontDescription("Pixelify Sans 14")
+        fd = Pango.FontDescription("Pixelify Sans 13")
         layout.set_font_description(fd)
         layout.set_wrap(Pango.WrapMode.WORD_CHAR)
-        layout.set_width(int(max_width * Pango.SCALE))
+        layout.set_width(int(BUBBLE_W * Pango.SCALE))
 
         ink, logical = layout.get_pixel_extents()
-        bub_w = max(logical.width + pad_x * 2, 60)
-        bub_h = logical.height + pad_y * 2 + 4
-        bub_x = (win_w - bub_w) / 2
-        bub_y = 2
+        bw = max(logical.width + BUBBLE_PAD * 2, 60)
+        bh = logical.height + BUBBLE_PAD * 2 + 6
+        bx = BUBBLE_X
+        by = CHAR_Y
 
         cr.set_source_rgba(1, 1, 1, 0.92)
-        cr.move_to(bub_x + 8, bub_y)
-        cr.arc(bub_x + bub_w - 8, bub_y + 8, 8, -math.pi / 2, 0)
-        cr.arc(bub_x + bub_w - 8, bub_y + bub_h - 8, 8, 0, math.pi / 2)
-        cr.arc(bub_x + 8, bub_y + bub_h - 8, 8, math.pi / 2, math.pi)
-        cr.arc(bub_x + 8, bub_y + 8, 8, math.pi, 3 * math.pi / 2)
+        r = 8
+        cr.move_to(bx + r, by)
+        cr.arc(bx + bw - r, by + r, r, -math.pi / 2, 0)
+        cr.arc(bx + bw - r, by + bh - r, r, 0, math.pi / 2)
+        cr.arc(bx + r, by + bh - r, r, math.pi / 2, math.pi)
+        cr.arc(bx + r, by + r, r, math.pi, 3 * math.pi / 2)
         cr.close_path()
         cr.fill_preserve()
         cr.set_source_rgba(0.7, 0.7, 0.7, 0.4)
         cr.set_line_width(1)
         cr.stroke()
 
+        tail_cy = by + bh / 2
+        cr.move_to(bx, tail_cy - 6)
+        cr.line_to(bx - 10, tail_cy)
+        cr.line_to(bx, tail_cy + 6)
+        cr.close_path()
+        cr.set_source_rgba(1, 1, 1, 0.92)
+        cr.fill()
+
         cr.set_source_rgba(0.1, 0.1, 0.1, 0.95)
-        cr.move_to(bub_x + pad_x, bub_y + pad_y + 2)
+        cr.move_to(bx + BUBBLE_PAD, by + BUBBLE_PAD + 2)
         PangoCairo.show_layout(cr, layout)
 
         cr.restore()
