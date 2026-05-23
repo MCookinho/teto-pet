@@ -272,6 +272,10 @@ class TetoPet(Gtk.Window):
 
         menu.append(ai_sub)
 
+        gemini_setup = Gtk.MenuItem.new_with_label("Configurar Gemini...")
+        gemini_setup.connect("activate", lambda _: self._setup_gemini())
+        menu.append(gemini_setup)
+
         local_item = Gtk.CheckMenuItem.new_with_label("Assistente Local")
         local_item.set_active(self.cfg.get("assistente_local", False))
         local_item.connect("toggled", self._toggle_assistente)
@@ -321,10 +325,64 @@ class TetoPet(Gtk.Window):
         else:
             self.show_speech("Assistente Local desativado. Só vou conversar mesmo!")
 
+    def _setup_gemini(self):
+        dialog = Gtk.Dialog(
+            title="Configurar Gemini",
+            transient_for=self,
+            flags=0,
+        )
+        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Salvar", Gtk.ResponseType.OK)
+        dialog.set_default_size(400, 200)
+
+        area = dialog.get_content_area()
+        area.set_margin_start(12)
+        area.set_margin_end(12)
+        area.set_margin_top(12)
+        area.set_margin_bottom(12)
+
+        lbl = Gtk.Label()
+        lbl.set_markup(
+            "<b>Gemini API Key</b>\n\n"
+            "O Gemini tem um plano gratuito generoso (60 req/min).\n\n"
+            "1. Acesse: https://aistudio.google.com/apikey\n"
+            "2. Clique em \"Criar chave de API\"\n"
+            "3. Copie a chave e cole abaixo\n\n"
+            "Não precisa de cartão de crédito."
+        )
+        lbl.set_line_wrap(True)
+        lbl.set_xalign(0)
+        area.pack_start(lbl, False, False, 6)
+
+        entry = Gtk.Entry()
+        entry.set_placeholder_text("Cole sua chave Gemini aqui...")
+        entry.set_text(self.cfg.get("gemini_key", ""))
+        entry.set_visibility(False)
+        area.pack_start(entry, False, False, 6)
+
+        link_btn = Gtk.LinkButton.new_with_label(
+            "https://aistudio.google.com/apikey",
+            "Abrir Google AI Studio",
+        )
+        area.pack_start(link_btn, False, False, 6)
+
+        area.show_all()
+
+        if dialog.run() == Gtk.ResponseType.OK:
+            key = entry.get_text().strip()
+            if key:
+                self.cfg["gemini_key"] = key
+                config.save(self.cfg)
+                self.show_speech("Gemini configurado! Vou usar IA do Google! ^_^")
+            else:
+                self.show_speech("Não colou nenhuma chave... Tenta de novo!")
+        dialog.destroy()
+
     def _change_provider(self, item, provider):
         if item.get_active():
             self.cfg["ai_provider"] = provider
             config.save(self.cfg)
+            if provider == config.PROVIDER_GEMINI and not self.cfg.get("gemini_key"):
+                GLib.idle_add(self._setup_gemini)
             if provider in (config.PROVIDER_AUTO, config.PROVIDER_OLLAMA):
                 GLib.idle_add(lambda: ollama_ensure_running())
 
