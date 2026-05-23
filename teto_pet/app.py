@@ -12,13 +12,12 @@ from teto_pet import phrases
 
 
 CHAR_SCALE = 5
-CHAR_X = 16
 CHAR_Y = 20
-BUBBLE_X = 180
 BUBBLE_W = 190
 BUBBLE_PAD = 12
-BUBBLE_MARGIN = 8
-WIN_W = BUBBLE_X + BUBBLE_W + BUBBLE_MARGIN
+BUBBLE_MARGIN = 16
+CHAR_W = 32 * CHAR_SCALE
+WIN_W = CHAR_W + BUBBLE_W + BUBBLE_MARGIN * 3
 WIN_H = 32 * CHAR_SCALE + 50
 
 
@@ -109,6 +108,25 @@ class TetoPet(Gtk.Window):
         GLib.idle_add(self._show_next_speech)
         return False
 
+    def _get_layout(self):
+        wx, wy = self.get_position()
+        screen = self.get_screen()
+        mon = screen.get_monitor_at_point(wx, wy)
+        geo = screen.get_monitor_geometry(mon)
+        center = geo.x + geo.width // 2
+        on_right_side = (wx + WIN_W // 2) > center
+
+        if on_right_side:
+            char_x = WIN_W - CHAR_W - BUBBLE_MARGIN
+            bubble_x = BUBBLE_MARGIN
+            tail_dir = 1
+        else:
+            char_x = BUBBLE_MARGIN
+            bubble_x = CHAR_W + BUBBLE_MARGIN * 2
+            tail_dir = -1
+
+        return char_x, bubble_x, tail_dir
+
     def _on_draw(self, widget, cr):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
         cr.set_source_rgba(0, 0, 0, 0)
@@ -116,12 +134,14 @@ class TetoPet(Gtk.Window):
         cr.paint()
         cr.set_operator(cairo.Operator.OVER)
 
-        self.character.draw(cr, w, h, dx=CHAR_X, dy=CHAR_Y)
-        self._draw_speech_bubble(cr, w)
+        char_x, bubble_x, tail_dir = self._get_layout()
+
+        self.character.draw(cr, w, h, dx=char_x, dy=CHAR_Y)
+        self._draw_speech_bubble(cr, bubble_x, tail_dir)
 
         return True
 
-    def _draw_speech_bubble(self, cr, win_w):
+    def _draw_speech_bubble(self, cr, bx, tail_dir):
         if not self.current_speech:
             return
 
@@ -138,7 +158,6 @@ class TetoPet(Gtk.Window):
         ink, logical = layout.get_pixel_extents()
         bw = max(logical.width + BUBBLE_PAD * 2, 60)
         bh = logical.height + BUBBLE_PAD * 2 + 6
-        bx = BUBBLE_X
         by = CHAR_Y
 
         cr.set_source_rgba(1, 1, 1, 0.92)
@@ -155,9 +174,9 @@ class TetoPet(Gtk.Window):
         cr.stroke()
 
         tail_cy = by + bh / 2
-        cr.move_to(bx, tail_cy - 6)
-        cr.line_to(bx - 10, tail_cy)
-        cr.line_to(bx, tail_cy + 6)
+        cr.move_to(bx if tail_dir > 0 else bx + bw, tail_cy - 6)
+        cr.line_to(bx + tail_dir * 12, tail_cy)
+        cr.line_to(bx if tail_dir > 0 else bx + bw, tail_cy + 6)
         cr.close_path()
         cr.set_source_rgba(1, 1, 1, 0.92)
         cr.fill()
