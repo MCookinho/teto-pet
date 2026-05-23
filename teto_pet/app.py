@@ -15,9 +15,11 @@ CHAR_SCALE = 5
 CHAR_Y = 20
 BUBBLE_W = 190
 BUBBLE_PAD = 12
-BUBBLE_MARGIN = 16
+GAP = 16
+MARGIN = 16
 CHAR_W = 32 * CHAR_SCALE
-WIN_W = CHAR_W + BUBBLE_W + BUBBLE_MARGIN * 3
+BUBBLE_MAX = BUBBLE_W + BUBBLE_PAD * 2
+WIN_W = MARGIN + CHAR_W + GAP + BUBBLE_MAX + MARGIN
 WIN_H = 32 * CHAR_SCALE + 50
 
 
@@ -116,12 +118,12 @@ class TetoPet(Gtk.Window):
         on_right = (wx + WIN_W // 2) > (sw // 2)
 
         if on_right:
-            char_x = WIN_W - CHAR_W - BUBBLE_MARGIN
-            bubble_x = BUBBLE_MARGIN
+            char_x = WIN_W - CHAR_W - MARGIN
+            bubble_x = MARGIN
             tail_dir = 1
         else:
-            char_x = BUBBLE_MARGIN
-            bubble_x = CHAR_W + BUBBLE_MARGIN * 2
+            char_x = MARGIN
+            bubble_x = MARGIN + CHAR_W + GAP
             tail_dir = -1
 
         return char_x, bubble_x, tail_dir
