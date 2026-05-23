@@ -67,6 +67,7 @@ class TetoPet(Gtk.Window):
 
         self.show_all()
         GLib.timeout_add(FRAME_MS, self._anim_tick)
+        GLib.idle_add(lambda: self.show_speech("Oii! Que bom te ver! ^_^", 5))
         GLib.timeout_add_seconds(45, self._random_speech)
 
     def _anim_tick(self):
@@ -109,14 +110,12 @@ class TetoPet(Gtk.Window):
         return False
 
     def _get_layout(self):
-        wx, wy = self.get_position()
+        wx, _ = self.get_position()
         screen = self.get_screen()
-        mon = screen.get_monitor_at_point(wx, wy)
-        geo = screen.get_monitor_geometry(mon)
-        center = geo.x + geo.width // 2
-        on_right_side = (wx + WIN_W // 2) > center
+        sw = screen.get_width()
+        on_right = (wx + WIN_W // 2) > (sw // 2)
 
-        if on_right_side:
+        if on_right:
             char_x = WIN_W - CHAR_W - BUBBLE_MARGIN
             bubble_x = BUBBLE_MARGIN
             tail_dir = 1
