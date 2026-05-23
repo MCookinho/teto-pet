@@ -28,7 +28,10 @@ def read_file(path):
         return f"Erro ao ler {path}: {e}"
 
 
-def list_files(path="."):
+MAX_LIST_ITEMS = 60
+
+
+def list_files(path="~"):
     expanded = os.path.expanduser(path)
     if not os.path.exists(expanded):
         return f"Erro: pasta não encontrada: {path}"
@@ -38,6 +41,10 @@ def list_files(path="."):
             full = os.path.join(expanded, item)
             suffix = "/" if os.path.isdir(full) else ""
             items.append(f"{item}{suffix}")
+        size = len(items)
+        if size > MAX_LIST_ITEMS:
+            items = items[:MAX_LIST_ITEMS]
+            items.append(f"... e mais {size - MAX_LIST_ITEMS} itens")
         return "\n".join(items)
     except PermissionError:
         return f"Sem permissão para listar {path}"

@@ -1,3 +1,4 @@
+import os
 import re
 
 from gi.repository import Gtk, Pango, GObject
@@ -92,33 +93,100 @@ class ChatWindow(Gtk.Window):
 
         return row
 
+    _LIST_VERBS = r'(?:listar?|lista|mostra|mostre|exibir?|veja?|olha?)'
+    _READ_VERBS = r'(?:ler|abrir|abra?|leia?|exibe?|pegar?|conteudo|mostra)'
+
     def _run_tool(self, text):
-        lower = text.lower()
+        lower = text.lower().strip()
         cfg = config.load()
         permitted = cfg.get("assistente_local", False)
 
-        # detect which tool is being requested
-        tool_name = None
-        tool_args = {}
+        # ── screenshot ────────────────────────────────────
+        if re.search(
+            r'(?:\bprint\b|captura\s*de\s*tela|tira\s+foto|foto\s+da\s+tela|'
+            r'\bscreenshot\b|mostra\s+a\s+tela|olha\s+a\s+tela|'
+            r'veja?\s+o\s+que\s+tem\s+na\s+tela)',
+            lower,
+        ):
+            return self._exec("screenshot", {})
 
-        if re.search(r'(print|captura|tira|foto|tela|screenshot)', lower):
-            tool_name = "screenshot"
-
-        m = re.search(r'(?:ler|abrir|mostrar|ver|exibir|pegar|conteudo)\s+(?:o\s+)?(?:arquivo\s+)?([^\s].*)', text, re.I)
-        if m:
-            tool_name = "read_file"
-            tool_args["path"] = m.group(1).strip().strip('"\'')
-
-        if not tool_name:
-            m = re.search(r'(?:listar|lista|mostrar|ver|exibir)\s+(?:a\s+)?(?:pasta|diretorio|dir|arquivos)\s+(.+)$', text, re.I)
+        # ── list files ────────────────────────────────────
+        # "o que tem [em/na/no] X" (NOT arquivo)
+        if re.search(r'(?:o\s+)?(?:que|q)\s+tem\s+(?:em|na|no)\s+', lower) \
+                and not re.search(r'(?:arquivo|documento|texto|conteudo)\s', lower):
+            m = re.search(r'(?:o\s+)?(?:que|q)\s+tem\s+(?:em|na|no)\s+(.+)', lower, re.I)
             if m:
-                tool_name = "list_files"
-                tool_args["path"] = m.group(1).strip().strip('"\'')
+                return self._exec("list_files", {"path": self._parse_path(m.group(1))})
 
-        if not tool_name:
-            return None
+        # "veja/lista/mostra [a/o] [minha/meu] pasta/home/diretorio"
+        if re.search(rf'{self._LIST_VERBS}\s+', lower) \
+                and re.search(r'(?:pasta|home|diretorio|dir|area)', lower) \
+                and not re.search(r'(?:arquivo|documento|texto|conteudo)', lower):
+            m = re.search(r'(?:pasta|home|diretorio|dir|area(?:\s+de\s+trabalho)?)\s*(.+)?$', lower, re.I)
+            path = m.group(1).strip() if m and m.group(1) else "~"
+            return self._exec("list_files", {"path": path})
 
-        if not permitted:
+        # "minha pasta", "meu home", "pasta home"
+        if re.search(r'(?:minha\s+pasta|meu\s+home|pasta\s+home)', lower) \
+                and not re.search(r'(?:arquivo|documento|texto)', lower):
+            return self._exec("list_files", {"path": "~"})
+
+        # "lista/veja [em/na] X" (simple path)
+        m = re.search(
+            rf'^{self._LIST_VERBS}\s+(?:pra\s+mim\s+)?(?:o\s+)?(?:que\s+)?(?:tem\s+)?'
+            rf'(?:em|na|no|nesse|nessa)\s+["\']?(.+?)["\']?$',
+            text, re.I,
+        )
+        if m:
+            raw = m.group(1).strip()
+            if raw and not re.search(r'(?:arquivo|documento|conteudo)', raw):
+                return self._exec("list_files", {"path": self._parse_path(raw)})
+
+        # "lista X" (single word path)
+        m = re.search(r'^(?:listar?|lista)\s+["\']?(\S+)["\']?$', text.strip(), re.I)
+        if m:
+            return self._exec("list_files", {"path": self._parse_path(m.group(1))})
+
+        # ── read file ─────────────────────────────────────
+        if re.search(self._READ_VERBS, lower) \
+                and (re.search(r'(?:arquivo|documento|texto|conteudo)', lower)
+                     or re.search(r'(?:ler|abra?|leia?|abrir)\s+', lower)):
+            m = re.search(
+                rf'{self._READ_VERBS}\s+(?:o\s+)?(?:arquivo\s+)?(?:chamado\s+)?'
+                rf'["\'](.+?)["\']',
+                text, re.I,
+            )
+            if m:
+                return self._exec("read_file", {"path": m.group(1).strip()})
+            m = re.search(
+                rf'{self._READ_VERBS}\s+(?:o\s+)?(?:arquivo\s+)?(?:chamado\s+)?'
+                rf'(\S+)',
+                text, re.I,
+            )
+            if m:
+                path = m.group(1).strip()
+                if not re.search(r'^(?:pasta|home|diretorio|meu|minha|na|no|em|a\s+|o\s+)', path, re.I):
+                    return self._exec("read_file", {"path": path})
+
+        # ── fallback: any mention of home/pasta/arquivo ──
+        if re.search(r'\b(?:home|pasta|diretorio|arquivo)\b', lower):
+            path = "~" if re.search(r'(?:home|pasta|diretorio)', lower) else None
+            if path:
+                return self._exec("list_files", {"path": path})
+
+        return None
+
+    def _parse_path(self, raw):
+        raw = raw.strip().rstrip(".,!?;:")
+        if re.search(r'^(?:(?:minha\s+)?(?:home|pasta(\s+home)?|diretorio)|meu\s+home)\s*$', raw, re.I):
+            return "~"
+        if raw.startswith("~") or raw.startswith("/") or raw.startswith("."):
+            return raw
+        return os.path.expanduser(f"~/{raw}") if "/" not in raw and "\\" not in raw else raw
+
+    def _exec(self, tool_name, args):
+        cfg = config.load()
+        if not cfg.get("assistente_local", False):
             return ("Hmm, não tenho permissão pra fazer isso! 🛡️\n"
                     "Ative o **Assistente Local** no menu de contexto "
                     "(botão direito na Teto) e tente de novo!")
@@ -127,15 +195,15 @@ class ChatWindow(Gtk.Window):
         if not tool:
             return None
 
-        result = tool["execute"](**tool_args)
+        result = tool["execute"](**args)
         if result.startswith("Erro") or result.startswith("Não consegui") or result.startswith("Sem permissão"):
             return f"Hmm, deu ruim: {result}"
 
         if tool_name == "screenshot":
-            return f"📸 Print da tela capturado!"
+            return f"Olha só! Tirei um print da tela! ^_^\n{result[:200]}"
         if tool_name == "read_file":
-            return f"Aqui está o conteúdo de `{tool_args['path']}`:\n\n{result}"
-        return f"Aqui está o conteúdo de `{tool_args['path']}`:\n\n{result}"
+            return f"Aqui está o que eu li do arquivo `{args['path']}`:\n\n{result}"
+        return f"Aqui está o que tem em `{args.get('path', '~')}`:\n\n{result}"
 
     def _on_send(self, _widget=None):
         text = self.entry.get_text().strip()
