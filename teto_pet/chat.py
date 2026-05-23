@@ -1,7 +1,10 @@
+import re
+
 from gi.repository import Gtk, Pango, GObject
 
 from teto_pet import ai
 from teto_pet.character import Mood
+from teto_pet.tools import TOOLS
 
 
 def _detect_mood(text):
@@ -89,17 +92,53 @@ class ChatWindow(Gtk.Window):
 
         return row
 
+    def _run_tool(self, text):
+        lower = text.lower()
+
+        # screenshot?
+        if re.search(r'(print|captura|tira|foto|tela|screenshot)', lower):
+            result = TOOLS["screenshot"]["execute"]()
+            return f"📸 Print da tela:\n\n{result[:100]}" if not result.startswith("Erro") else result
+
+        # read file: "leia o arquivo /path" or "mostre /path/to/file"
+        m = re.search(r'(?:ler|abrir|mostrar|ver|exibir|pegar|conteudo)\s+(?:o\s+)?(?:arquivo\s+)?([^\s].*)', text, re.I)
+        if m:
+            path = m.group(1).strip().strip('"\'')
+            tool = TOOLS.get("read_file")
+            if tool:
+                result = tool["execute"](path)
+                return f"Aqui está o conteúdo de `{path}`:\n\n{result}"
+
+        # list files: "liste a pasta /path"
+        m = re.search(r'(?:listar|lista|mostrar|ver|exibir)\s+(?:a\s+)?(?:pasta|diretorio|dir|arquivos)\s+(.+)$', text, re.I)
+        if m:
+            path = m.group(1).strip().strip('"\'')
+            tool = TOOLS.get("list_files")
+            if tool:
+                result = tool["execute"](path)
+                return f"Aqui está o conteúdo de `{path}`:\n\n{result}"
+
+        return None
+
     def _on_send(self, _widget=None):
         text = self.entry.get_text().strip()
         if not text or self.waiting:
             return
 
         self.entry.set_text("")
-        self.waiting = True
-        self.entry.set_sensitive(False)
-
         self._add_bubble("Você", text, "user")
         self.history.append({"role": "user", "content": text})
+
+        # check for tool commands
+        tool_result = self._run_tool(text)
+        if tool_result:
+            self.history.append({"role": "assistant", "content": tool_result})
+            self._add_bubble("Teto", tool_result, "teto")
+            self.emit("teto-speech", tool_result, Mood.NORMAL)
+            return
+
+        self.waiting = True
+        self.entry.set_sensitive(False)
         thinking_row = self._add_bubble("Teto", "…", "teto")
 
         user_mood = _detect_mood(text)

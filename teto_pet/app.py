@@ -240,6 +240,7 @@ class TetoPet(Gtk.Window):
             (config.PROVIDER_AUTO, "Automático"),
             (config.PROVIDER_OLLAMA, "Ollama (local)"),
             (config.PROVIDER_HF, "API (Hugging Face)"),
+            (config.PROVIDER_GEMINI, "Gemini (Google)"),
             (config.PROVIDER_PHRASES, "Frases prontas"),
         ]:
             item = Gtk.RadioMenuItem.new_with_label(group, label)

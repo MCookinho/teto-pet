@@ -42,6 +42,9 @@ def _run_provider(provider, message, history):
         reply = _ask_hf(message, history)
         if reply:
             return reply
+        reply = _ask_gemini(message, history)
+        if reply:
+            return reply
         print("[teto-pet] All providers failed, using phrases", file=sys.stderr)
         return phrases.get_fallback(message)
 
@@ -49,21 +52,24 @@ def _run_provider(provider, message, history):
         reply = _ask_ollama(message, history)
         if reply:
             return reply
-        print("[teto-pet] Ollama failed, using phrases", file=sys.stderr)
         return phrases.get_fallback(message)
 
     if provider == config.PROVIDER_HF:
         reply = _ask_hf(message, history)
         if reply:
             return reply
-        print("[teto-pet] Hugging Face failed, using phrases", file=sys.stderr)
+        return phrases.get_fallback(message)
+
+    if provider == "gemini":
+        reply = _ask_gemini(message, history)
+        if reply:
+            return reply
         return phrases.get_fallback(message)
 
     return phrases.get_fallback(message)
 
 
 def _resolve(host, timeout=3):
-    """Try system DNS, fallback to Cloudflare DoH."""
     try:
         socket.setdefaulttimeout(timeout)
         socket.gethostbyname(host)
@@ -85,37 +91,25 @@ def _resolve(host, timeout=3):
     return False
 
 
+def _build_messages(history, message):
+    msgs = [{"role": "system", "content": SYSTEM}]
+    for h in history[-8:]:
+        msgs.append({"role": h["role"], "content": h["content"]})
+    msgs.append({"role": "user", "content": message})
+    return msgs
+
+
+# ─── Ollama ─────────────────────────────────────────────
+
+
 def _ask_ollama(message, history):
     model = _ollama_model()
     if not model:
         return None
 
-    prompt = f"{SYSTEM}\n"
-    for h in history[-6:]:
-        prompt += f"{'User' if h['role'] == 'user' else 'Teto'}: {h['content']}\n"
-    prompt += "Teto:"
-
-    try:
-        resp = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": model, "prompt": prompt, "stream": False,
-                "options": {"num_predict": 80, "temperature": 0.8},
-            },
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            text = resp.json().get("response", "")
-            if text:
-                for prefix in ("Teto:", "teto:", "Assistente:", "assistente:"):
-                    if text.startswith(prefix):
-                        text = text[len(prefix):]
-                text = text.strip()
-                print(f"[teto-pet] Ollama ({model}): {text[:60]}", file=sys.stderr)
-                return text
-    except requests.RequestException as e:
-        print(f"[teto-pet] Ollama error: {e}", file=sys.stderr)
-    return None
+    msgs = _build_messages(history, message)
+    reply = _ollama_chat(model, msgs)
+    return reply or None
 
 
 def _ollama_model():
@@ -126,11 +120,36 @@ def _ollama_model():
         models = resp.json().get("models", [])
         if not models:
             return None
-        chosen = sorted(m["name"] for m in models)[0]
-        print(f"[teto-pet] Ollama detectado: {chosen}", file=sys.stderr)
+        model_names = sorted(m["name"] for m in models)
+        chosen = model_names[0]
         return chosen
     except requests.RequestException:
         return None
+
+
+def _ollama_chat(model, messages):
+    try:
+        resp = requests.post(
+            "http://localhost:11434/api/chat",
+            json={"model": model, "messages": messages, "stream": False,
+                  "options": {"num_predict": 200, "temperature": 0.8}},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            text = resp.json().get("message", {}).get("content", "")
+            if text:
+                for prefix in ("Teto:", "teto:", "Assistente:", "assistente:"):
+                    if text.startswith(prefix):
+                        text = text[len(prefix):]
+                text = text.strip()
+                print(f"[teto-pet] Ollama: {text[:60]}", file=sys.stderr)
+                return text
+    except requests.RequestException as e:
+        print(f"[teto-pet] Ollama error: {e}", file=sys.stderr)
+    return None
+
+
+# ─── Hugging Face ─────────────────────────────────────────
 
 
 def _ask_hf(message, history):
@@ -176,6 +195,57 @@ def _ask_hf(message, history):
             return after
 
     return None
+
+
+# ─── Gemini ────────────────────────────────────────────────
+
+
+def _ask_gemini(message, history):
+    key = config.load().get("gemini_key", "")
+    if not key:
+        return None
+
+    if not _resolve("generativelanguage.googleapis.com"):
+        print("[teto-pet] Gemini domain unreachable", file=sys.stderr)
+        return None
+
+    contents = []
+    for h in history[-8:]:
+        role = "user" if h["role"] == "user" else "model"
+        contents.append({"role": role, "parts": [{"text": h["content"]}]})
+    contents.append({"role": "user", "parts": [{"text": message}]})
+
+    try:
+        resp = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
+            json={
+                "contents": contents,
+                "systemInstruction": {"parts": [{"text": SYSTEM}]},
+                "generationConfig": {
+                    "maxOutputTokens": 200,
+                    "temperature": 0.8,
+                },
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    text = parts[0].get("text", "")
+                    print(f"[teto-pet] Gemini: {text[:60]}", file=sys.stderr)
+                    return text
+        else:
+            print(f"[teto-pet] Gemini error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
+    except requests.RequestException as e:
+        print(f"[teto-pet] Gemini error: {e}", file=sys.stderr)
+
+    return None
+
+
+# ─── Shared helpers ────────────────────────────────────────
 
 
 def _params(fmt):

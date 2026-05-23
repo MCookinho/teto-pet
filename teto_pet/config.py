@@ -7,9 +7,10 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 PROVIDER_AUTO = "auto"
 PROVIDER_OLLAMA = "ollama"
 PROVIDER_HF = "huggingface"
+PROVIDER_GEMINI = "gemini"
 PROVIDER_PHRASES = "phrases"
 
-PROVIDERS = [PROVIDER_AUTO, PROVIDER_OLLAMA, PROVIDER_HF, PROVIDER_PHRASES]
+PROVIDERS = [PROVIDER_AUTO, PROVIDER_OLLAMA, PROVIDER_HF, PROVIDER_GEMINI, PROVIDER_PHRASES]
 
 DEFAULT_CONFIG = {
     "window_x": 100,
@@ -17,6 +18,7 @@ DEFAULT_CONFIG = {
     "always_on_top": True,
     "ai_provider": PROVIDER_AUTO,
     "language": "pt",
+    "gemini_key": "",
 }
 
 
@@ -32,6 +34,9 @@ def load():
         for k in cfg:
             if k in saved:
                 cfg[k] = saved[k]
+        # validate provider
+        if cfg["ai_provider"] not in PROVIDERS:
+            cfg["ai_provider"] = PROVIDER_AUTO
         # migrate old config: ai_enabled=False  ->  provider=phrases
         if "ai_enabled" in saved and not saved["ai_enabled"]:
             cfg["ai_provider"] = PROVIDER_PHRASES
