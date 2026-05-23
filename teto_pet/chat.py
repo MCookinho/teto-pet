@@ -1,9 +1,25 @@
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk, Pango, GObject
 
 from teto_pet import ai
+from teto_pet.character import Mood
+
+
+def _detect_mood(text):
+    words = set(text.lower().split())
+    if words & {"triste", "chateado", "chateada", "depre", "mal", "ruim", "tristeza", "sorry", "desculpa"}:
+        return Mood.TRISTE
+    if words & {"raiva", "ódio", "odio", "puto", "puta", "raiva", "bravo", "brava"}:
+        return Mood.RAIVA
+    if words & {"feliz", "alegre", "haha", "kkk", "amo", "adoro", "top", "ótimo", "otimo", "legal", "bom"}:
+        return Mood.FELIZ
+    return Mood.NORMAL
 
 
 class ChatWindow(Gtk.Window):
+
+    __gsignals__ = {
+        "teto-speech": (GObject.SignalFlags.RUN_FIRST, None, (str, object)),
+    }
 
     def __init__(self, parent=None):
         super().__init__(title="Conversar com Teto", transient_for=parent)
@@ -82,7 +98,14 @@ class ChatWindow(Gtk.Window):
 
         self.history.append({"role": "user", "content": text})
 
+        user_mood = _detect_mood(text)
         reply = ai.ask(text, self.history)
 
         self.history.append({"role": "assistant", "content": reply})
+
+        reply_mood = _detect_mood(reply)
+        if reply_mood == Mood.NORMAL and user_mood != Mood.NORMAL:
+            reply_mood = user_mood
+
         self._add_bubble("Teto", reply, "teto")
+        self.emit("teto-speech", reply, reply_mood)
