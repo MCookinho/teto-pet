@@ -9,6 +9,7 @@ from teto_pet import config
 from teto_pet.character import Teto, Mood, FRAME_MS
 from teto_pet.chat import ChatWindow
 from teto_pet import phrases
+from teto_pet.ai import ollama_ensure_running, ollama_stop
 
 
 CHAR_SCALE = 5
@@ -69,8 +70,20 @@ class TetoPet(Gtk.Window):
 
         self.show_all()
         GLib.timeout_add(FRAME_MS, self._anim_tick)
+
+        provider = self.cfg.get("ai_provider", config.PROVIDER_AUTO)
+        if provider in (config.PROVIDER_AUTO, config.PROVIDER_OLLAMA):
+            GLib.idle_add(self._start_ollama_if_needed)
+
         GLib.idle_add(lambda: self.show_speech("Oii! Que bom te ver! ^_^", 5))
         GLib.timeout_add_seconds(45, self._random_speech)
+
+    def _start_ollama_if_needed(self):
+        if ollama_ensure_running():
+            self.show_speech("Ollama ligado! Tô pronta pra conversar! ^_^")
+        else:
+            self.show_speech("Hmm, não achei o Ollama... Vou usar frases prontas mesmo!")
+        return False
 
     def _anim_tick(self):
         self.character.tick()
@@ -292,6 +305,8 @@ class TetoPet(Gtk.Window):
         if item.get_active():
             self.cfg["ai_provider"] = provider
             config.save(self.cfg)
+            if provider in (config.PROVIDER_AUTO, config.PROVIDER_OLLAMA):
+                GLib.idle_add(lambda: ollama_ensure_running())
 
     def _show_about(self, _item=None):
         about = Gtk.AboutDialog()
@@ -309,4 +324,5 @@ class TetoPet(Gtk.Window):
         self.cfg["window_x"] = x
         self.cfg["window_y"] = y
         config.save(self.cfg)
+        ollama_stop()
         Gtk.main_quit()

@@ -46,27 +46,27 @@ def _run_provider(provider, message, history):
         if reply:
             return reply
         print("[teto-pet] All providers failed, using phrases", file=sys.stderr)
-        return phrases.get_fallback(message)
+        return phrases.get_fallback(message, history)
 
     if provider == config.PROVIDER_OLLAMA:
         reply = _ask_ollama(message, history)
         if reply:
             return reply
-        return phrases.get_fallback(message)
+        return phrases.get_fallback(message, history)
 
     if provider == config.PROVIDER_HF:
         reply = _ask_hf(message, history)
         if reply:
             return reply
-        return phrases.get_fallback(message)
+        return phrases.get_fallback(message, history)
 
     if provider == "gemini":
         reply = _ask_gemini(message, history)
         if reply:
             return reply
-        return phrases.get_fallback(message)
+        return phrases.get_fallback(message, history)
 
-    return phrases.get_fallback(message)
+    return phrases.get_fallback(message, history)
 
 
 def _resolve(host, timeout=3):
@@ -243,6 +243,60 @@ def _ask_gemini(message, history):
         print(f"[teto-pet] Gemini error: {e}", file=sys.stderr)
 
     return None
+
+
+# ─── Ollama auto-management ────────────────────────────────
+
+import subprocess
+import time
+
+_ollama_started_by_us = False
+
+
+def ollama_ensure_running():
+    global _ollama_started_by_us
+
+    try:
+        resp = requests.get("http://localhost:11434/api/tags", timeout=2)
+        if resp.status_code == 200:
+            return True
+    except requests.RequestException:
+        pass
+
+    if not subprocess.run(["which", "ollama"], capture_output=True).returncode == 0:
+        print("[teto-pet] Ollama not installed", file=sys.stderr)
+        return False
+
+    print("[teto-pet] Starting Ollama...", file=sys.stderr)
+    try:
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _ollama_started_by_us = True
+        for _ in range(10):
+            time.sleep(1)
+            try:
+                resp = requests.get("http://localhost:11434/api/tags", timeout=2)
+                if resp.status_code == 200:
+                    print("[teto-pet] Ollama started!", file=sys.stderr)
+                    return True
+            except requests.RequestException:
+                pass
+    except Exception as e:
+        print(f"[teto-pet] Failed to start Ollama: {e}", file=sys.stderr)
+
+    return False
+
+
+def ollama_stop():
+    global _ollama_started_by_us
+    if not _ollama_started_by_us:
+        return
+    print("[teto-pet] Stopping Ollama...", file=sys.stderr)
+    subprocess.run(["pkill", "ollama"], capture_output=True)
+    _ollama_started_by_us = False
 
 
 # ─── Shared helpers ────────────────────────────────────────
