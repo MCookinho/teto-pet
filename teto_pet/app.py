@@ -1,7 +1,9 @@
 import math
 import random
 
-from gi.repository import Gtk, Gdk, GLib, cairo
+import gi
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo, cairo
 
 from teto_pet import config
 from teto_pet.character import Teto, Mood, FRAME_MS
@@ -106,10 +108,10 @@ class TetoPet(Gtk.Window):
         cr.paint()
         cr.set_operator(cairo.Operator.OVER)
 
-        self.character.draw(cr, w, h - 20)
         self._draw_speech_bubble(cr, w)
+        self.character.draw(cr, w, h - 20)
 
-        return False
+        return True
 
     def _draw_speech_bubble(self, cr, win_w):
         if not self.current_speech:
@@ -119,23 +121,18 @@ class TetoPet(Gtk.Window):
         cr.save()
 
         pad_x, pad_y = 12, 8
-        max_width = win_w - 20
-        cw = 6.5
-        lines = []
-        cur = ""
-        for word in text.split():
-            test = cur + (" " if cur else "") + word
-            if len(test) * cw > max_width:
-                lines.append(cur)
-                cur = word
-            else:
-                cur = test
-        if cur:
-            lines.append(cur)
+        max_width = win_w - 24
 
-        lh = 16
-        bub_w = max(min(max(len(l) for l in lines) * cw + pad_x * 2, max_width), 60)
-        bub_h = len(lines) * lh + pad_y * 2 + 2
+        layout = PangoCairo.create_layout(cr)
+        layout.set_text(text, -1)
+        fd = Pango.FontDescription("Pixelify Sans 14")
+        layout.set_font_description(fd)
+        layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+        layout.set_width(int(max_width * Pango.SCALE))
+
+        ink, logical = layout.get_pixel_extents()
+        bub_w = max(logical.width + pad_x * 2, 60)
+        bub_h = logical.height + pad_y * 2 + 4
         bub_x = (win_w - bub_w) / 2
         bub_y = 2
 
@@ -152,11 +149,8 @@ class TetoPet(Gtk.Window):
         cr.stroke()
 
         cr.set_source_rgba(0.1, 0.1, 0.1, 0.95)
-        cr.select_font_face("Pixelify Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
-        cr.set_font_size(14)
-        for i, line in enumerate(lines):
-            cr.move_to(bub_x + pad_x, bub_y + pad_y + i * lh + 13)
-            cr.show_text(line)
+        cr.move_to(bub_x + pad_x, bub_y + pad_y + 2)
+        PangoCairo.show_layout(cr, layout)
 
         cr.restore()
 
