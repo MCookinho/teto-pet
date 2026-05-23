@@ -19,6 +19,7 @@ DEFAULT_CONFIG = {
     "ai_provider": PROVIDER_AUTO,
     "language": "pt",
     "gemini_key": "",
+    "assistente_local": False,
 }
 
 

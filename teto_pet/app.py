@@ -40,6 +40,7 @@ class TetoPet(Gtk.Window):
         self.speech_queue = []
         self.current_speech = None
         self.talking_timer = None
+        self._last_click_time = 0
 
         self.set_default_size(WIN_W, WIN_H)
         self.set_resizable(False)
@@ -203,6 +204,12 @@ class TetoPet(Gtk.Window):
 
     def _on_button_press(self, _w, ev):
         if ev.button == 1:
+            now = ev.time
+            if now - self._last_click_time < 500:
+                self._open_chat()
+                self._last_click_time = 0
+                return True
+            self._last_click_time = now
             self.dragging = True
             self.drag_x, self.drag_y = int(ev.x_root), int(ev.y_root)
             x, y = self.get_position()
@@ -265,6 +272,11 @@ class TetoPet(Gtk.Window):
 
         menu.append(ai_sub)
 
+        local_item = Gtk.CheckMenuItem.new_with_label("Assistente Local")
+        local_item.set_active(self.cfg.get("assistente_local", False))
+        local_item.connect("toggled", self._toggle_assistente)
+        menu.append(local_item)
+
         menu.append(Gtk.SeparatorMenuItem())
 
         about_item = Gtk.MenuItem.new_with_label("Sobre")
@@ -300,6 +312,14 @@ class TetoPet(Gtk.Window):
         self.cfg["always_on_top"] = item.get_active()
         self.set_keep_above(item.get_active())
         config.save(self.cfg)
+
+    def _toggle_assistente(self, item):
+        self.cfg["assistente_local"] = item.get_active()
+        config.save(self.cfg)
+        if item.get_active():
+            self.show_speech("Assistente Local ativado! Posso ler arquivos e ver a tela! ^_^")
+        else:
+            self.show_speech("Assistente Local desativado. Só vou conversar mesmo!")
 
     def _change_provider(self, item, provider):
         if item.get_active():

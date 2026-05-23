@@ -2,7 +2,7 @@ import re
 
 from gi.repository import Gtk, Pango, GObject
 
-from teto_pet import ai
+from teto_pet import ai, config
 from teto_pet.character import Mood
 from teto_pet.tools import TOOLS
 
@@ -93,14 +93,16 @@ class ChatWindow(Gtk.Window):
         return row
 
     def _run_tool(self, text):
+        cfg = config.load()
+        if not cfg.get("assistente_local", False):
+            return None
+
         lower = text.lower()
 
-        # screenshot?
         if re.search(r'(print|captura|tira|foto|tela|screenshot)', lower):
             result = TOOLS["screenshot"]["execute"]()
             return f"📸 Print da tela:\n\n{result[:100]}" if not result.startswith("Erro") else result
 
-        # read file: "leia o arquivo /path" or "mostre /path/to/file"
         m = re.search(r'(?:ler|abrir|mostrar|ver|exibir|pegar|conteudo)\s+(?:o\s+)?(?:arquivo\s+)?([^\s].*)', text, re.I)
         if m:
             path = m.group(1).strip().strip('"\'')
@@ -109,7 +111,6 @@ class ChatWindow(Gtk.Window):
                 result = tool["execute"](path)
                 return f"Aqui está o conteúdo de `{path}`:\n\n{result}"
 
-        # list files: "liste a pasta /path"
         m = re.search(r'(?:listar|lista|mostrar|ver|exibir)\s+(?:a\s+)?(?:pasta|diretorio|dir|arquivos)\s+(.+)$', text, re.I)
         if m:
             path = m.group(1).strip().strip('"\'')
