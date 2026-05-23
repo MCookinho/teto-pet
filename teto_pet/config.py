@@ -8,10 +8,10 @@ DEFAULT_CONFIG = {
     "window_x": 100,
     "window_y": 100,
     "always_on_top": True,
-    "volume": 0.7,
+    "ai_enabled": True,
+    "ai_provider": "huggingface",
     "ai_endpoint": "http://localhost:11434/api/generate",
     "ai_model": "llama3.2",
-    "ai_enabled": False,
     "language": "pt",
 }
 

@@ -2,50 +2,67 @@ import json
 import urllib.request
 import urllib.error
 
-from teto_pet import config
 from teto_pet import phrases
+
+HF_MODEL = "HuggingFaceH4/zephyr-7b-beta"
+HF_API = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
 
 
 def ask(message, history=None):
-    cfg = config.load()
-    if cfg.get("ai_enabled") and cfg.get("ai_endpoint"):
-        try:
-            return _ask_ollama(message, history or [], cfg)
-        except Exception:
-            pass
+    if not history:
+        history = []
+
+    reply = _ask_huggingface(message, history)
+    if reply:
+        return reply
 
     return _ask_fallback(message)
 
 
-def _ask_ollama(message, history, cfg):
-    endpoint = cfg["ai_endpoint"]
-    model = cfg.get("ai_model", "llama3.2")
-
-    messages = [{"role": "system",
-                 "content": "Você é a Kasane Teto, uma vocaloid energética e brincalhona. "
-                            "Responda de forma curta, fofa e em português. "
-                            "Use emoticons e seja carismática como uma mascote de desktop."}]
-    for h in history[-10:]:
-        messages.append({"role": h["role"], "content": h["content"]})
-    messages.append({"role": "user", "content": message})
+def _ask_huggingface(message, history):
+    system = (
+        "You are Kasane Teto, an energetic and playful UTAU vocaloid. "
+        "Keep answers short, cute, and in Portuguese. Use emoticons. "
+        "You are a desktop companion and best friend."
+    )
+    prompt = f"{system}\n"
+    for h in history[-6:]:
+        role = h["role"]
+        prompt += f"{'User' if role == 'user' else 'Teto'}: {h['content']}\n"
+    prompt += "Teto:"
 
     payload = json.dumps({
-        "model": model,
-        "messages": messages,
-        "stream": False,
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 60,
+            "temperature": 0.8,
+            "top_p": 0.9,
+            "do_sample": True,
+        },
     }).encode()
 
     req = urllib.request.Request(
-        endpoint,
+        HF_API,
         data=payload,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
 
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode())
+            if isinstance(data, list):
+                text = data[0].get("generated_text", "")
+                if text:
+                    after = text.split("Teto:")[-1].strip()
+                    return after
+            elif isinstance(data, dict):
+                return data.get("generated_text", "")
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError,
+            json.JSONDecodeError, KeyError):
+        pass
 
-    return data.get("response", "").strip()
+    return None
 
 
 def _ask_fallback(message):

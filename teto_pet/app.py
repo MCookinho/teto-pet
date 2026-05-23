@@ -230,8 +230,8 @@ class TetoPet(Gtk.Window):
         top_item.connect("toggled", self._toggle_ontop)
         menu.append(top_item)
 
-        ai_item = Gtk.CheckMenuItem.new_with_label("Usar IA local")
-        ai_item.set_active(self.cfg.get("ai_enabled", False))
+        ai_item = Gtk.CheckMenuItem.new_with_label("IA ativa (Hugging Face)")
+        ai_item.set_active(self.cfg.get("ai_enabled", True))
         ai_item.connect("toggled", self._toggle_ai)
         menu.append(ai_item)
 
