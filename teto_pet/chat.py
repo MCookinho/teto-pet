@@ -56,6 +56,7 @@ class ChatWindow(Gtk.Window):
         entry_box.pack_start(send_btn, False, False, 0)
 
         self.history = []
+        self.waiting = False
         self._add_bubble("Teto", "Oii! Que bom te ver! ^_^", "teto")
 
     def _add_bubble(self, who, text, cls):
@@ -67,9 +68,7 @@ class ChatWindow(Gtk.Window):
         hbox.set_margin_bottom(4)
 
         label = Gtk.Label()
-        label.set_markup(
-            f"<b>{who}:</b>  {text}"
-        )
+        label.set_markup(f"<b>{who}:</b>  {text}")
         label.set_line_wrap(True)
         label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         label.set_max_width_chars(38)
@@ -88,24 +87,35 @@ class ChatWindow(Gtk.Window):
         if adj:
             adj.set_value(adj.get_upper() - adj.get_page_size())
 
+        return row
+
     def _on_send(self, _widget=None):
         text = self.entry.get_text().strip()
-        if not text:
+        if not text or self.waiting:
             return
 
         self.entry.set_text("")
-        self._add_bubble("Você", text, "user")
+        self.waiting = True
+        self.entry.set_sensitive(False)
 
+        self._add_bubble("Você", text, "user")
         self.history.append({"role": "user", "content": text})
+        thinking_row = self._add_bubble("Teto", "…", "teto")
 
         user_mood = _detect_mood(text)
-        reply = ai.ask(text, self.history)
 
-        self.history.append({"role": "assistant", "content": reply})
+        def on_reply(reply):
+            self.waiting = False
+            self.entry.set_sensitive(True)
 
-        reply_mood = _detect_mood(reply)
-        if reply_mood == Mood.NORMAL and user_mood != Mood.NORMAL:
-            reply_mood = user_mood
+            self.history.append({"role": "assistant", "content": reply})
+            self.msg_list.remove(thinking_row)
 
-        self._add_bubble("Teto", reply, "teto")
-        self.emit("teto-speech", reply, reply_mood)
+            reply_mood = _detect_mood(reply)
+            if reply_mood == Mood.NORMAL and user_mood != Mood.NORMAL:
+                reply_mood = user_mood
+
+            self._add_bubble("Teto", reply, "teto")
+            self.emit("teto-speech", reply, reply_mood)
+
+        ai.ask(text, self.history, callback=on_reply)
