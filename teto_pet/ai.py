@@ -36,13 +36,13 @@ def ask_with_provider(provider, message, history, callback=None):
 
 def _run_provider(provider, message, history):
     if provider == config.PROVIDER_AUTO:
-        reply = _ask_ollama(message, history)
+        reply = _ask_gemini(message, history)
         if reply:
             return reply
         reply = _ask_hf(message, history)
         if reply:
             return reply
-        reply = _ask_gemini(message, history)
+        reply = _ask_ollama(message, history)
         if reply:
             return reply
         print("[teto-pet] All providers failed, using phrases", file=sys.stderr)
