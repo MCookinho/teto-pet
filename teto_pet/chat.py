@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import html
 
 from gi.repository import Gtk, Pango, GObject
@@ -7,6 +8,26 @@ from gi.repository import Gtk, Pango, GObject
 from teto_pet import ai, config
 from teto_pet.character import Mood
 from teto_pet.tools import TOOLS, TOOL_KEYWORDS
+
+HISTORY_FILE = os.path.expanduser("~/.config/teto-pet/chat_history.json")
+MAX_HISTORY = 50
+
+
+def _save_history(history):
+    try:
+        os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history[-MAX_HISTORY:], f, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def _load_history():
+    try:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
 
 
 def _detect_mood(text):
@@ -70,9 +91,15 @@ class ChatWindow(Gtk.Window):
         send_btn.connect("clicked", self._on_send)
         entry_box.pack_start(send_btn, False, False, 0)
 
-        self.history = []
+        self.history = _load_history()
         self.waiting = False
-        self._add_bubble("Teto", "Oii! Que bom te ver! ^_^", "teto")
+
+        if not self.history:
+            self._add_bubble("Teto", "Oii! Que bom te ver! ^_^", "teto")
+        else:
+            for h in self.history[-20:]:
+                who = "Teto" if h["role"] == "assistant" else "Você"
+                self._add_bubble(who, h["content"], "teto" if h["role"] == "assistant" else "user")
 
     def _add_bubble(self, who, text, cls):
         row = Gtk.ListBoxRow()
@@ -232,9 +259,23 @@ class ChatWindow(Gtk.Window):
         raw = raw.strip().rstrip(".,!?;:")
         if re.search(r'^(?:(?:minha\s+)?(?:home|pasta(\s+home)?|diretorio)|meu\s+home)\s*$', raw, re.I):
             return "~"
-        if raw.startswith("~") or raw.startswith("/") or raw.startswith("."):
-            return raw
-        return os.path.expanduser(f"~/{raw}") if "/" not in raw and "\\" not in raw else raw
+        expanded = os.path.expanduser(raw)
+        if os.path.exists(expanded):
+            return expanded
+        # case-insensitive fallback for Linux
+        resolved = _resolve_ci(expanded)
+        if resolved:
+            return resolved
+        # try as ~/raw
+        if not raw.startswith("~") and not raw.startswith("/") and not raw.startswith("."):
+            expanded = os.path.expanduser(f"~/{raw}")
+            if os.path.exists(expanded):
+                return expanded
+            resolved = _resolve_ci(expanded)
+            if resolved:
+                return resolved
+        return raw
+
 
     def _exec(self, tool_name, args):
         cfg = config.load()
@@ -279,6 +320,7 @@ class ChatWindow(Gtk.Window):
             self.entry.set_sensitive(True)
 
             self.history.append({"role": "assistant", "content": reply})
+            _save_history(self.history)
             self.msg_list.remove(thinking_row)
 
             reply_mood = _detect_mood(reply)
@@ -293,3 +335,28 @@ class ChatWindow(Gtk.Window):
                    tool_context=tool_result)
         else:
             ai.ask(text, self.history, callback=on_reply)
+
+
+def _resolve_ci(path):
+    if os.path.exists(path):
+        return path
+    parts = path.strip("/").split("/")
+    current = "/" if path.startswith("/") else ""
+    if path.startswith("~"):
+        current = os.path.expanduser("~")
+        parts = parts[1:]
+    for part in parts:
+        if not part:
+            continue
+        if not os.path.isdir(current) and not os.path.isfile(current):
+            return None
+        try:
+            for name in os.listdir(current):
+                if name.lower() == part.lower():
+                    current = os.path.join(current, name)
+                    break
+            else:
+                return None
+        except PermissionError:
+            return None
+    return current
