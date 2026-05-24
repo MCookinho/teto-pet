@@ -247,6 +247,35 @@ class ChatWindow(Gtk.Window):
         if m:
             return self._exec("run_command", {"command": m.group(1).strip()})
 
+        # ── system info queries (only with assistente_local) ──
+        if permitted:
+            if re.search(r'(?:sistema\s+operacional|qual\s+(?:o\s+)?(?:sistema|SO|os)|que\s+(?:SO|os)\s+(?:eu\s+)?(?:tenho|uso)|qual\s+distro)', lower):
+                return self._exec("run_command", {"command": "cat /etc/os-release 2>/dev/null | head -5 || lsb_release -d 2>/dev/null || uname -o"})
+            if re.search(r'(?:mem[óo]ria|RAM|quanta\s+ram|memoria\s+ram|mem[óo]ria\s+total)', lower):
+                return self._exec("run_command", {"command": "free -h | head -3"})
+            if re.search(r'(?:processador|CPU|qual\s+(?:o\s+)?processador|quantos\s+n[uú]cleos)', lower):
+                return self._exec("run_command", {"command": "lscpu | grep -E '^(Model name|CPU|Thread|Core|Socket)' | head -5"})
+            if re.search(r'(?:disco|hd|armazenamento|espa[çc]o\s+(?:em\s+)?disco|quanto\s+espa[çc]o)', lower):
+                return self._exec("run_command", {"command": "df -h / 2>/dev/null | tail -1"})
+            if re.search(r'(?:kernel|vers[ãa]o\s+do\s+linux|uname)', lower):
+                return self._exec("run_command", {"command": "uname -a"})
+            if re.search(r'(?:hostname|nome\s+(?:do\s+)?(?:pc|computador|maquina))', lower):
+                return self._exec("run_command", {"command": "hostname"})
+            if re.search(r'(?:usu[áa]rio|usuario|quem\s+(?:sou|é|est[áa]))\s+(?:eu|logado|no\s+pc)', lower):
+                return self._exec("run_command", {"command": "whoami"})
+            if re.search(r'(?:tempo\s+(?:ligado|online|ativo)|uptime|h[aá] quanto\s+tempo)', lower):
+                return self._exec("run_command", {"command": "uptime"})
+            if re.search(r'(?:processos?|programas?\s+(?:abertos|rodando|executando)|o\s+que\s+est[áa]\s+rodando)', lower):
+                return self._exec("run_command", {"command": "ps aux --sort=-%mem | head -10"})
+            if re.search(r'(?:rede|IP|endere[çc]o\s+(?:de\s+)?(?:rede|ip)|conex[ãa]o|wifi)', lower):
+                return self._exec("run_command", {"command": "ip -4 a 2>/dev/null || ifconfig 2>/dev/null | head -10"})
+            if re.search(r'(?:nomes?[ãa]o|data|que\s+(?:dia|hora)\s+(?:é|são|estamos)|hor[aá]rio)', lower):
+                return self._exec("run_command", {"command": "date '+%A, %d de %B de %Y - %H:%M'"})
+            if re.search(r'(?:placa\s+(?:de\s+)?(?:v[íi]deo|gr[áa]fica)|GPU|qual\s+(?:a\s+)?placa)', lower):
+                return self._exec("run_command", {"command": "lspci | grep -i vga | head -3"})
+            if re.search(r'(?:bateria|nível\s+da\s+bateria|carga|energy)', lower):
+                return self._exec("run_command", {"command": "cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1 || echo 'Sem bateria detectada'"})
+
         # ── fallback: assistente_local on, try as command ─
         if permitted:
             # git / mkdir / apt / pip etc

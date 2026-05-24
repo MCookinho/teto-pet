@@ -42,30 +42,36 @@ def _run_provider(provider, message, history, tool_context=None):
     if provider == config.PROVIDER_AUTO:
         reply = _ask_gemini(msg, history)
         if reply:
+            print("[teto-pet] Gemini", file=sys.stderr)
             return reply
         reply = _ask_hf(msg, history)
         if reply:
+            print("[teto-pet] HuggingFace", file=sys.stderr)
             return reply
         reply = _ask_ollama(msg, history)
         if reply:
+            print("[teto-pet] Ollama", file=sys.stderr)
             return reply
         return phrases.get_fallback(msg, history)
 
     if provider == config.PROVIDER_OLLAMA:
         reply = _ask_ollama(msg, history)
         if reply:
+            print("[teto-pet] Ollama", file=sys.stderr)
             return reply
         return phrases.get_fallback(msg, history)
 
     if provider == config.PROVIDER_HF:
         reply = _ask_hf(msg, history)
         if reply:
+            print("[teto-pet] HuggingFace", file=sys.stderr)
             return reply
         return phrases.get_fallback(msg, history)
 
     if provider == "gemini":
         reply = _ask_gemini(msg, history)
         if reply:
+            print("[teto-pet] Gemini", file=sys.stderr)
             return reply
         key = config.load().get("gemini_key", "")
         if not key:
@@ -246,7 +252,6 @@ def _ask_gemini(message, history):
                     parts = candidates[0].get("content", {}).get("parts", [])
                     if parts:
                         text = parts[0].get("text", "")
-                        print(f"[teto-pet] Gemini ({model}): {text[:60]}", file=sys.stderr)
                         return text
             elif resp.status_code == 429:
                 continue
