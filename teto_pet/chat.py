@@ -163,8 +163,8 @@ class ChatWindow(Gtk.Window):
                 and re.search(self._DIR_KEYWORDS, lower) \
                 and not re.search(r'(?:arquivo|documento|texto|conteudo)', lower):
             m = re.search(rf'(?:{self._DIR_KEYWORDS})\s*(.+)?$', lower, re.I)
-            path = m.group(1).strip() if m and m.group(1) else "~"
-            return self._exec("list_files", {"path": path})
+            raw = m.group(1).strip() if m and m.group(1) else "~"
+            return self._exec("list_files", {"path": self._parse_path(raw)})
 
         # "minha pasta", "meu home", "pasta home"
         if re.search(r'(?:minha\s+pastas?|meu\s+home|pastas?\s+home)', lower) \
@@ -203,7 +203,7 @@ class ChatWindow(Gtk.Window):
                 text, re.I,
             )
             if m:
-                return self._exec("read_file", {"path": m.group(1).strip()})
+                return self._exec("read_file", {"path": self._parse_path(m.group(1).strip())})
             m = re.search(
                 rf'{self._READ_VERBS}\s+(?:o\s+)?(?:arquivo\s+)?(?:chamado\s+)?'
                 rf'(\S+)',
@@ -212,7 +212,7 @@ class ChatWindow(Gtk.Window):
             if m:
                 path = m.group(1).strip()
                 if not re.search(r'^(?:pastas?|home|diretorio|meu|minha|na|no|em|a\s+|o\s+)', path, re.I):
-                    return self._exec("read_file", {"path": path})
+                    return self._exec("read_file", {"path": self._parse_path(path)})
 
         # ── write file ────────────────────────────────────
         # "cria/salva/escreve [um] arquivo X [com] Y"
