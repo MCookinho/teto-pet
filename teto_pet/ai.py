@@ -49,7 +49,6 @@ def _run_provider(provider, message, history, tool_context=None):
         reply = _ask_ollama(msg, history)
         if reply:
             return reply
-        print("[teto-pet] All providers failed, using phrases", file=sys.stderr)
         return phrases.get_fallback(msg, history)
 
     if provider == config.PROVIDER_OLLAMA:
@@ -149,7 +148,6 @@ def _ollama_chat(model, messages):
                     if text.startswith(prefix):
                         text = text[len(prefix):]
                 text = text.strip()
-                print(f"[teto-pet] Ollama: {text[:60]}", file=sys.stderr)
                 return text
     except requests.RequestException as e:
         print(f"[teto-pet] Ollama error: {e}", file=sys.stderr)
@@ -161,7 +159,6 @@ def _ollama_chat(model, messages):
 
 def _ask_hf(message, history):
     if not _resolve("api-inference.huggingface.co"):
-        print("[teto-pet] HuggingFace domain unreachable, skipping", file=sys.stderr)
         return None
 
     models = [
@@ -252,15 +249,12 @@ def _ask_gemini(message, history):
                         print(f"[teto-pet] Gemini ({model}): {text[:60]}", file=sys.stderr)
                         return text
             elif resp.status_code == 429:
-                print(f"[teto-pet] Gemini {model} quota exceeded, trying next...", file=sys.stderr)
                 continue
             elif resp.status_code == 403:
                 return "Sua chave Gemini parece inválida ou expirou. Vá em Configurar Gemini e cole uma chave nova grátis em https://aistudio.google.com/apikey"
             elif resp.status_code == 404:
-                print(f"[teto-pet] Gemini {model} not found, trying next...", file=sys.stderr)
                 continue
             else:
-                print(f"[teto-pet] Gemini {model} error {resp.status_code}", file=sys.stderr)
                 continue
         except requests.RequestException as e:
             print(f"[teto-pet] Gemini request failed: {e}", file=sys.stderr)
