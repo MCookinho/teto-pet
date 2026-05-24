@@ -14,6 +14,22 @@ SYSTEM = (
     "You are a desktop companion and best friend."
 )
 
+TOOL_SYSTEM = (
+    "You have access to these tools:\n"
+    "- list_files path=<dir> — list files in a directory\n"
+    "- read_file path=<file> — read a text file\n"
+    "- run_command command=<bash> — run any bash command\n"
+    "- write_file path=<file> content=<text> — write/create a file\n"
+    "- screenshot — capture the screen\n"
+    "If you need to use a tool to answer the user, respond with EXACTLY:\n"
+    "TOOL: <name> | <key>=<value> | ...\n"
+    "After the tool runs, you will see the result and should answer naturally.\n"
+    "Example: user asks 'what files are in my Downloads?' → "
+    "TOOL: list_files | path=~/Downloads\n"
+    "Then in your next response, describe the files cutely.\n"
+    "IMPORTANT: Never make up file contents. Always use a tool to check."
+)
+
 
 def ask(message, history=None, callback=None, tool_context=None):
     if not history:
@@ -112,7 +128,11 @@ def _resolve(host, timeout=3):
 
 
 def _build_messages(history, message):
-    msgs = [{"role": "system", "content": SYSTEM}]
+    cfg = config.load()
+    sys_msg = SYSTEM
+    if cfg.get("assistente_local", False):
+        sys_msg += "\n\n" + TOOL_SYSTEM
+    msgs = [{"role": "system", "content": sys_msg}]
     for h in history[-8:]:
         msgs.append({"role": h["role"], "content": h["content"]})
     msgs.append({"role": "user", "content": message})
@@ -239,13 +259,18 @@ def _ask_gemini(message, history):
         contents.append({"role": role, "parts": [{"text": h["content"]}]})
     contents.append({"role": "user", "parts": [{"text": message}]})
 
+    cfg = config.load()
+    sys_msg = SYSTEM
+    if cfg.get("assistente_local", False):
+        sys_msg += "\n\n" + TOOL_SYSTEM
+
     for model in GEMINI_MODELS:
         try:
             resp = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
                 json={
                     "contents": contents,
-                    "systemInstruction": {"parts": [{"text": SYSTEM}]},
+                    "systemInstruction": {"parts": [{"text": sys_msg}]},
                     "generationConfig": {
                         "maxOutputTokens": 200,
                         "temperature": 0.8,

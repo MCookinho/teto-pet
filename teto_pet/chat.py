@@ -315,11 +315,15 @@ class ChatWindow(Gtk.Window):
     def _exec(self, tool_name, args):
         cfg = config.load()
         if not cfg.get("assistente_local", False):
-            return "erro: assistente local desativado (clique direito na Teto e ative)"
+            return None
 
         tool = TOOLS.get(tool_name)
         if not tool:
             return None
+
+        # resolve paths case-insensitively
+        if "path" in args:
+            args["path"] = self._parse_path(args["path"])
 
         try:
             result = tool["execute"](**args)
@@ -336,6 +340,61 @@ class ChatWindow(Gtk.Window):
         print(f"[teto-pet] {tool_name}: {result[:60]}", file=sys.stderr)
         return f"{tool_name}({args.get('path', '~')}): {result[:1000]}"
 
+    _TOOL_RE = re.compile(r'^TOOL:\s*(\w+)\s*(?:\|\s*(.*?))?\s*$', re.I | re.MULTILINE)
+
+    def _call_ai_then_tool(self, text, depth=0):
+        if depth > 3:
+            return "Hmm, deu um loop nas ferramentas! >_<"
+
+        self.waiting = True
+        self.entry.set_sensitive(False)
+        thinking_row = self._add_bubble("Teto", "…", "teto")
+        user_mood = _detect_mood(text)
+
+        def on_reply(reply):
+            self.msg_list.remove(thinking_row)
+
+            m = self._TOOL_RE.search(reply)
+            if m:
+                tool_name = m.group(1).lower()
+                args_raw = m.group(2) or ""
+                args = {}
+                for pair in args_raw.split("|"):
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        args[k.strip()] = v.strip()
+
+                tool_result = self._exec(tool_name, args)
+                if tool_result:
+                    self.history.append({"role": "assistant", "content": f"[Ferramenta {tool_name} executada]"})
+                    self._call_ai_then_tool(
+                        f"{text}\n\n[Resultado de {tool_name}: {tool_result}]",
+                        depth + 1,
+                    )
+                else:
+                    self.waiting = False
+                    self.entry.set_sensitive(True)
+                    bubble_text = "Hmm, não consegui usar essa ferramenta..."
+                    self.history.append({"role": "assistant", "content": bubble_text})
+                    _save_history(self.history)
+                    self._add_bubble("Teto", bubble_text, "teto")
+                    self.emit("teto-speech", bubble_text, Mood.TRISTE)
+                return
+
+            self.waiting = False
+            self.entry.set_sensitive(True)
+            self.history.append({"role": "assistant", "content": reply})
+            _save_history(self.history)
+
+            reply_mood = _detect_mood(reply)
+            if reply_mood == Mood.NORMAL and user_mood != Mood.NORMAL:
+                reply_mood = user_mood
+
+            self._add_bubble("Teto", reply, "teto")
+            self.emit("teto-speech", reply, reply_mood)
+
+        ai.ask(text, self.history, callback=on_reply)
+
     def _on_send(self, _widget=None):
         text = self.entry.get_text().strip()
         if not text or self.waiting:
@@ -345,34 +404,7 @@ class ChatWindow(Gtk.Window):
         self._add_bubble("Você", text, "user")
         self.history.append({"role": "user", "content": text})
 
-        tool_result = self._run_tool(text)
-
-        self.waiting = True
-        self.entry.set_sensitive(False)
-        thinking_row = self._add_bubble("Teto", "…", "teto")
-
-        user_mood = _detect_mood(text)
-
-        def on_reply(reply):
-            self.waiting = False
-            self.entry.set_sensitive(True)
-
-            self.history.append({"role": "assistant", "content": reply})
-            _save_history(self.history)
-            self.msg_list.remove(thinking_row)
-
-            reply_mood = _detect_mood(reply)
-            if reply_mood == Mood.NORMAL and user_mood != Mood.NORMAL:
-                reply_mood = user_mood
-
-            self._add_bubble("Teto", reply, "teto")
-            self.emit("teto-speech", reply, reply_mood)
-
-        if tool_result:
-            ai.ask(text, self.history, callback=on_reply,
-                   tool_context=tool_result)
-        else:
-            ai.ask(text, self.history, callback=on_reply)
+        self._call_ai_then_tool(text)
 
 
 def _resolve_ci(path):
