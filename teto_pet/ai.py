@@ -15,53 +15,57 @@ SYSTEM = (
 )
 
 
-def ask(message, history=None, callback=None):
+def ask(message, history=None, callback=None, tool_context=None):
     if not history:
         history = []
     p = config.load().get("ai_provider", config.PROVIDER_AUTO)
-    return ask_with_provider(p, message, history, callback)
+    return ask_with_provider(p, message, history, callback, tool_context)
 
 
-def ask_with_provider(provider, message, history, callback=None):
+def ask_with_provider(provider, message, history, callback=None, tool_context=None):
     if not history:
         history = []
     if callback is None:
-        return _run_provider(provider, message, history)
+        return _run_provider(provider, message, history, tool_context)
     thread = threading.Thread(
-        target=lambda: GLib.idle_add(callback, _run_provider(provider, message, history)),
+        target=lambda: GLib.idle_add(callback, _run_provider(provider, message, history, tool_context)),
         daemon=True,
     )
     thread.start()
 
 
-def _run_provider(provider, message, history):
+def _run_provider(provider, message, history, tool_context=None):
+    msg = message
+    if tool_context:
+        msg = f"{message}\n\n[Ferramenta usada: {tool_context}]"
+
     if provider == config.PROVIDER_AUTO:
-        reply = _ask_gemini(message, history)
+        reply = _ask_gemini(msg, history)
         if reply:
             return reply
-        reply = _ask_hf(message, history)
+        reply = _ask_hf(msg, history)
         if reply:
             return reply
-        reply = _ask_ollama(message, history)
+        reply = _ask_ollama(msg, history)
         if reply:
             return reply
         print("[teto-pet] All providers failed, using phrases", file=sys.stderr)
-        return phrases.get_fallback(message, history)
+        return phrases.get_fallback(msg, history)
 
     if provider == config.PROVIDER_OLLAMA:
-        reply = _ask_ollama(message, history)
+        reply = _ask_ollama(msg, history)
         if reply:
             return reply
-        return phrases.get_fallback(message, history)
+        return phrases.get_fallback(msg, history)
 
     if provider == config.PROVIDER_HF:
-        reply = _ask_hf(message, history)
+        reply = _ask_hf(msg, history)
         if reply:
             return reply
-        return phrases.get_fallback(message, history)
+        return phrases.get_fallback(msg, history)
 
     if provider == "gemini":
-        reply = _ask_gemini(message, history)
+        reply = _ask_gemini(msg, history)
         if reply:
             return reply
         key = config.load().get("gemini_key", "")
@@ -69,7 +73,7 @@ def _run_provider(provider, message, history):
             return "Hmm, você selecionou Gemini mas não configurou a chave! 🛡️\nVá no menu e clique em **Configurar Gemini** pra pegar uma chave grátis!"
         return "Gemini não respondeu. Pode ser cota esgotada ou chave inválida. Tenta outra chave em Configurar Gemini."
 
-    return phrases.get_fallback(message, history)
+    return phrases.get_fallback(msg, history)
 
 
 def _resolve(host, timeout=3):

@@ -187,23 +187,16 @@ class ChatWindow(Gtk.Window):
     def _exec(self, tool_name, args):
         cfg = config.load()
         if not cfg.get("assistente_local", False):
-            return ("Hmm, não tenho permissão pra fazer isso! 🛡️\n"
-                    "Ative o **Assistente Local** no menu de contexto "
-                    "(botão direito na Teto) e tente de novo!")
+            return "erro: assistente local desativado (clique direito na Teto e ative)"
 
         tool = TOOLS.get(tool_name)
         if not tool:
             return None
 
         result = tool["execute"](**args)
-        if result.startswith("Erro") or result.startswith("Não consegui") or result.startswith("Sem permissão"):
-            return f"Hmm, deu ruim: {result}"
-
         if tool_name == "screenshot":
-            return f"Olha só! Tirei um print da tela! ^_^\n{result[:200]}"
-        if tool_name == "read_file":
-            return f"Aqui está o que eu li do arquivo `{args['path']}`:\n\n{result}"
-        return f"Aqui está o que tem em `{args.get('path', '~')}`:\n\n{result}"
+            return f"screenshot: {result[:200]}"
+        return f"{tool_name}({args.get('path', '~')}): {result}"
 
     def _on_send(self, _widget=None):
         text = self.entry.get_text().strip()
@@ -214,13 +207,7 @@ class ChatWindow(Gtk.Window):
         self._add_bubble("Você", text, "user")
         self.history.append({"role": "user", "content": text})
 
-        # check for tool commands
         tool_result = self._run_tool(text)
-        if tool_result:
-            self.history.append({"role": "assistant", "content": tool_result})
-            self._add_bubble("Teto", tool_result, "teto")
-            self.emit("teto-speech", tool_result, Mood.NORMAL)
-            return
 
         self.waiting = True
         self.entry.set_sensitive(False)
@@ -242,4 +229,8 @@ class ChatWindow(Gtk.Window):
             self._add_bubble("Teto", reply, "teto")
             self.emit("teto-speech", reply, reply_mood)
 
-        ai.ask(text, self.history, callback=on_reply)
+        if tool_result:
+            ai.ask(text, self.history, callback=on_reply,
+                   tool_context=tool_result)
+        else:
+            ai.ask(text, self.history, callback=on_reply)
