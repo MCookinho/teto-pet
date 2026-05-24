@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 import json
 import html
 
@@ -132,6 +133,7 @@ class ChatWindow(Gtk.Window):
         return row
 
     _LIST_VERBS = r'(?:listar?|lista|mostra|mostre|exibir?|veja?|olha?)'
+    _DIR_KEYWORDS = r'(?:pastas?|home|diretorio|dir|area)'
     _READ_VERBS = r'(?:ler|abrir|abra?|leia?|exibe?|pegar?|conteudo|mostra)'
 
     def _run_tool(self, text):
@@ -149,23 +151,23 @@ class ChatWindow(Gtk.Window):
             return self._exec("screenshot", {})
 
         # ── list files ────────────────────────────────────
-        # "o que tem [em/na/no] X" (NOT arquivo)
-        if re.search(r'(?:o\s+)?(?:que|q)\s+tem\s+(?:em|na|no)\s+', lower) \
+        # "o que tem [em/na/no/nas/nos] X" (NOT arquivo)
+        if re.search(r'(?:o\s+)?(?:que|q)\s+tem\s+(?:e[mn]|na[rs]?|no[rs]?)\s+', lower) \
                 and not re.search(r'(?:arquivo|documento|texto|conteudo)\s', lower):
-            m = re.search(r'(?:o\s+)?(?:que|q)\s+tem\s+(?:em|na|no)\s+(.+)', lower, re.I)
+            m = re.search(r'(?:o\s+)?(?:que|q)\s+tem\s+(?:e[mn]|na[rs]?|no[rs]?)\s+(.+)', lower, re.I)
             if m:
                 return self._exec("list_files", {"path": self._parse_path(m.group(1))})
 
-        # "veja/lista/mostra [a/o] [minha/meu] pasta/home/diretorio"
+        # "veja/lista/mostra [a/o/as] pasta/home/diretorio"
         if re.search(rf'{self._LIST_VERBS}\s+', lower) \
-                and re.search(r'(?:pasta|home|diretorio|dir|area)', lower) \
+                and re.search(self._DIR_KEYWORDS, lower) \
                 and not re.search(r'(?:arquivo|documento|texto|conteudo)', lower):
-            m = re.search(r'(?:pasta|home|diretorio|dir|area(?:\s+de\s+trabalho)?)\s*(.+)?$', lower, re.I)
+            m = re.search(rf'(?:{self._DIR_KEYWORDS})\s*(.+)?$', lower, re.I)
             path = m.group(1).strip() if m and m.group(1) else "~"
             return self._exec("list_files", {"path": path})
 
         # "minha pasta", "meu home", "pasta home"
-        if re.search(r'(?:minha\s+pasta|meu\s+home|pasta\s+home)', lower) \
+        if re.search(r'(?:minha\s+pastas?|meu\s+home|pastas?\s+home)', lower) \
                 and not re.search(r'(?:arquivo|documento|texto)', lower):
             return self._exec("list_files", {"path": "~"})
 
@@ -186,8 +188,8 @@ class ChatWindow(Gtk.Window):
             return self._exec("list_files", {"path": self._parse_path(m.group(1))})
 
         # ── "leia/abra a pasta/home/diretorio" → list_files
-        if re.search(r'(?:ler|abra?|leia?|abrir)\s+(?:a\s+|o\s+)?(?:pasta|home|diretorio)', lower):
-            m = re.search(r'(?:ler|abra?|leia?|abrir)\s+(?:a\s+|o\s+)?(?:pasta|home|diretorio)\s+(.+)?$', lower)
+        if re.search(r'(?:ler|abra?|leia?|abrir)\s+(?:a\s+|o\s+)?(?:pastas?|home|diretorio)', lower):
+            m = re.search(r'(?:ler|abra?|leia?|abrir)\s+(?:a\s+|o\s+)?(?:pastas?|home|diretorio)\s+(.+)?$', lower)
             path = m.group(1).strip() if m and m.group(1) else "~"
             return self._exec("list_files", {"path": self._parse_path(path)})
 
@@ -209,7 +211,7 @@ class ChatWindow(Gtk.Window):
             )
             if m:
                 path = m.group(1).strip()
-                if not re.search(r'^(?:pasta|home|diretorio|meu|minha|na|no|em|a\s+|o\s+)', path, re.I):
+                if not re.search(r'^(?:pastas?|home|diretorio|meu|minha|na|no|em|a\s+|o\s+)', path, re.I):
                     return self._exec("read_file", {"path": path})
 
         # ── write file ────────────────────────────────────
@@ -286,7 +288,7 @@ class ChatWindow(Gtk.Window):
 
     def _parse_path(self, raw):
         raw = raw.strip().rstrip(".,!?;:")
-        if re.search(r'^(?:(?:minha\s+)?(?:home|pasta(\s+home)?|diretorio)|meu\s+home)\s*$', raw, re.I):
+        if re.search(r'^(?:(?:minha\s+)?(?:home|pastas?(?:\s+home)?|diretorio)|meu\s+home)\s*$', raw, re.I):
             return "~"
         expanded = os.path.expanduser(raw)
         if os.path.exists(expanded):
@@ -322,9 +324,12 @@ class ChatWindow(Gtk.Window):
         if tool_name == "screenshot":
             return f"screenshot: {result[:200]}"
         if tool_name == "run_command":
+            print(f"[teto-pet] Comando: {args.get('command', '?')[:60]}", file=sys.stderr)
             return f"run_command: {result[:500]}"
         if tool_name == "write_file":
+            print(f"[teto-pet] Arquivo: {args.get('path', '?')}", file=sys.stderr)
             return f"write_file: {result[:200]}"
+        print(f"[teto-pet] {tool_name}: {result[:60]}", file=sys.stderr)
         return f"{tool_name}({args.get('path', '~')}): {result[:1000]}"
 
     def _on_send(self, _widget=None):
