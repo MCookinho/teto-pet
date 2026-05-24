@@ -8,9 +8,25 @@ PROVIDER_AUTO = "auto"
 PROVIDER_OLLAMA = "ollama"
 PROVIDER_HF = "huggingface"
 PROVIDER_GEMINI = "gemini"
+PROVIDER_GROQ = "groq"
 PROVIDER_PHRASES = "phrases"
 
-PROVIDERS = [PROVIDER_AUTO, PROVIDER_OLLAMA, PROVIDER_HF, PROVIDER_GEMINI, PROVIDER_PHRASES]
+PROVIDERS = [PROVIDER_AUTO, PROVIDER_OLLAMA, PROVIDER_HF, PROVIDER_GEMINI, PROVIDER_GROQ, PROVIDER_PHRASES]
+
+BUBBLE_AUTO = "auto"
+BUBBLE_LEFT = "left"
+BUBBLE_RIGHT = "right"
+BUBBLE_SIDES = [BUBBLE_AUTO, BUBBLE_LEFT, BUBBLE_RIGHT]
+
+# Per-tool permission keys
+TOOL_KEYS = [
+    "tool_read_file",
+    "tool_list_files",
+    "tool_run_command",
+    "tool_write_file",
+    "tool_open_url",
+    "tool_screenshot",
+]
 
 DEFAULT_CONFIG = {
     "window_x": 100,
@@ -19,8 +35,17 @@ DEFAULT_CONFIG = {
     "ai_provider": PROVIDER_AUTO,
     "language": "pt",
     "gemini_key": "",
-    "assistente_local": False,
+    "groq_key": "",
+    "bubble_side": BUBBLE_AUTO,
+    "active_model": "kasane_teto",
+    "ollama_model": "",
+    "user_name": "",
+    "user_bio": "",
+    "accessibility_enabled": False,
+    "accessibility_interval": 30,
 }
+for k in TOOL_KEYS:
+    DEFAULT_CONFIG[k] = False
 
 
 def load():
@@ -38,9 +63,17 @@ def load():
         # validate provider
         if cfg["ai_provider"] not in PROVIDERS:
             cfg["ai_provider"] = PROVIDER_AUTO
+        # validate bubble_side
+        if cfg.get("bubble_side") not in BUBBLE_SIDES:
+            cfg["bubble_side"] = BUBBLE_AUTO
         # migrate old config: ai_enabled=False  ->  provider=phrases
         if "ai_enabled" in saved and not saved["ai_enabled"]:
             cfg["ai_provider"] = PROVIDER_PHRASES
+        # migrate old assistente_local -> individual tool flags
+        if "assistente_local" in saved and saved["assistente_local"]:
+            for k in TOOL_KEYS:
+                if k not in saved:
+                    cfg[k] = True
     except (json.JSONDecodeError, OSError):
         pass
 

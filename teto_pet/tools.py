@@ -180,6 +180,15 @@ def write_file(path, content):
         return f"Erro ao escrever {path}: {e}"
 
 
+def open_url(url):
+    import subprocess
+    try:
+        subprocess.run(["xdg-open", url], capture_output=True, timeout=5)
+        return f"URL aberta: {url}"
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return f"Erro ao abrir URL: {e}"
+
+
 TOOLS = {
     "read_file": {
         "name": "read_file",
@@ -211,6 +220,12 @@ TOOLS = {
         "execute": write_file,
         "parameters": {"path": "caminho do arquivo", "content": "conteúdo a escrever"},
     },
+    "open_url": {
+        "name": "open_url",
+        "description": "Abre uma URL no navegador padrão",
+        "execute": open_url,
+        "parameters": {"url": "URL para abrir"},
+    },
 }
 
 TOOL_KEYWORDS = {
@@ -232,5 +247,9 @@ TOOL_KEYWORDS = {
     ],
     "write_file": [
         "escreve", "salva", "cria arquivo", "cria um arquivo",
+    ],
+    "open_url": [
+        "abre", "abrir", "navegador", "browser", "site", "url",
+        "youtube", "google", "link", "pagina", "página",
     ],
 }

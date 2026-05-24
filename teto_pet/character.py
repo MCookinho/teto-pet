@@ -1,5 +1,4 @@
 import os
-import glob
 from enum import Enum
 
 import cairo
@@ -8,7 +7,9 @@ gi.require_version("GdkPixbuf", "2.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import GdkPixbuf, Gdk, GLib
 
-ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets", "teto")
+from teto_pet.models import model
+
+ASSETS_DIR = model.SPRITES_DIR
 FPS = 8
 FRAME_MS = 1000 // FPS
 
@@ -33,11 +34,14 @@ class Teto:
         self._load_sheets()
 
     def _load_sheets(self):
+        names = model.SPRITE_NAMES
         os.makedirs(ASSETS_DIR, exist_ok=True)
         for mood in MOOD_ORDER:
             pair = {}
+            base = names.get(mood.value, mood.value)
             for variant in ("", "Falando"):
-                fname = f"Teto{mood.value}{variant}.png"
+                suffix = variant.replace("Falando", "Speaking")
+                fname = f"{base}{suffix}.png"
                 path = os.path.join(ASSETS_DIR, fname)
                 try:
                     pb = GdkPixbuf.Pixbuf.new_from_file(path)
@@ -86,6 +90,10 @@ class Teto:
     @property
     def has_sprite(self):
         return bool(self.frames)
+
+    def reload_sprites(self):
+        self.frames = {}
+        self._load_sheets()
 
     def set_mood(self, mood):
         if mood in self.frames:
@@ -150,4 +158,4 @@ class Teto:
         cr.move_to(10, 20)
         cr.show_text("coloque sprites em:")
         cr.move_to(10, 38)
-        cr.show_text("assets/teto/Teto*.png")
+        cr.show_text(f"{model.SPRITES_DIR}/ {{mood}}{{+Speaking}}.png")

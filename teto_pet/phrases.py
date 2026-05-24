@@ -1,14 +1,15 @@
 import random
+from teto_pet.models import model
 
 FALLBACKS = {
     "greeting": [
         "Oii! Que bom te ver! ^_^",
         "Aaa, oi! Tô aqui!",
-        "E aí, beleza? Teto online!",
+        f"E aí, beleza? {model.PET_SHORT_NAME} online!",
         "Opa! Que bom que você veio me visitar!",
         "Hey hey! Tava esperando você!",
         "Oi oi! Como cê tá?",
-        "Fala aí! Teto pronta pro que der e vier!",
+        f"Fala aí! {model.PET_SHORT_NAME} pronta pro que der e vier!",
         "Oieee! Saudades!",
     ],
     "how_are_you": [
@@ -50,10 +51,10 @@ FALLBACKS = {
         "Tchauzinho! Cuida bem de você!",
     ],
     "name": [
-        "Sou a Kasane Teto! A vocaloid mais linda do universo!",
-        "Teto-chan! Prazer em te conhecer!",
-        "Kasane Teto, mas pode me chamar de Teto!",
-        "Eu sou a Teto! Cantora, vocaloid e seu pet virtual favorito!",
+        f"Sou {model.PET_NAME}! A vocaloid mais linda do universo!",
+        f"{model.PET_SHORT_NAME}-chan! Prazer em te conhecer!",
+        f"{model.PET_NAME}, mas pode me chamar de {model.PET_SHORT_NAME}!",
+        f"Eu sou {model.PET_SHORT_NAME}! Cantora, vocaloid e seu pet virtual favorito!",
     ],
     "what_can_you_do": [
         "Eu converso com você! Posso ler arquivos, ver sua tela, e te fazer companhia!",
@@ -74,7 +75,7 @@ FALLBACKS = {
         "Qual o animal mais antigo? A zebra, porque é preta e branca!",
     ],
     "sing": [
-        "La la la~ ♪ Você sabia que a Teto canta? Meu programa é UTAU!",
+        f"La la la~ ♪ Você sabia que a {model.PET_SHORT_NAME} canta? Meu programa é UTAU!",
         "♪ Cantando eu vou~ feliz a cantar~ ♪",
         "Quer ouvir uma música? Me pede!",
     ],
@@ -113,7 +114,7 @@ FALLBACKS = {
     ],
     "music": [
         "Ah, eu amo música! Meu sonho é ser uma cantora famosa!",
-        "Já ouviu alguma música minha? Tem no YouTube! Procura Kasane Teto~",
+        f"Já ouviu alguma música minha? Tem no YouTube! Procura {model.PET_NAME}~",
         "Música é vida! Qual seu estilo favorito?",
     ],
     "unknown": [

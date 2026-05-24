@@ -3,12 +3,13 @@ import re
 import sys
 import json
 import html
+import subprocess
 
-from gi.repository import Gtk, Pango, GObject
+from gi.repository import Gtk, Pango, GObject, GLib
 
 from teto_pet import ai, config
 from teto_pet.character import Mood
-from teto_pet.tools import TOOLS, TOOL_KEYWORDS
+from teto_pet.tools import TOOLS, TOOL_KEYWORDS, screenshot as _screenshot_fn
 
 HISTORY_FILE = os.path.expanduser("~/.config/teto-pet/chat_history.json")
 MAX_HISTORY = 50
@@ -50,6 +51,65 @@ def _detect_mood(text):
     if words & {"feliz", "alegre", "haha", "kkk", "amo", "adoro", "top", "ótimo", "otimo", "legal", "bom"}:
         return Mood.FELIZ
     return Mood.NORMAL
+
+
+_URL_RE = re.compile(r'(https?://[^\s<>"]+|www\.[^\s<>"]+)', re.I)
+
+
+def _linkify(text):
+    parts = []
+    last = 0
+    for m in _URL_RE.finditer(text):
+        start, end = m.start(), m.end()
+        if start > last:
+            parts.append(html.escape(text[last:start]))
+        url = m.group(0)
+        href = url if url.startswith("http") else f"https://{url}"
+        parts.append(f'<a href="{html.escape(href)}">{html.escape(url)}</a>')
+        last = end
+    if last < len(text):
+        parts.append(html.escape(text[last:]))
+    return "".join(parts)
+
+
+def _open_url(url):
+    try:
+        subprocess.run(["xdg-open", url], capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+
+TOOL_BUBBLE_SIZE = 600
+
+
+def _tool_display_words(result):
+    if result.startswith("run_command"):
+        cmd = result[len("run_command: "):].strip()
+        if cmd == "(ok, exit code 0)":
+            return "Comando executado! ^_^"
+        return f"Comando executado:\n{cmd[:TOOL_BUBBLE_SIZE]}"
+    if result.startswith("open_url"):
+        url = result[len("open_url("):].rsplit(")", 1)[0] if "open_url(" in result else result
+        return f"URL aberta! {url[:80]}"
+    if result.startswith("screenshot"):
+        return "Print tirado! Vou dar uma olhada... ^_^"
+    if result.startswith("write_file"):
+        return "Arquivo salvo! Feito! ^_^"
+    if result.startswith("list_files"):
+        content = result.split(": ", 1)[1] if ": " in result else result
+        path = result.split("(")[1].split(")")[0] if "(" in result else "~"
+        lines = content.strip().split("\n")
+        if len(lines) > 30:
+            content = "\n".join(lines[:30]) + f"\n... (+{len(lines)-30} itens)"
+        return f"Arquivos em ~{path.replace('~', '')}:\n{content}"
+    if result.startswith("read_file"):
+        content = result.split(": ", 1)[1] if ": " in result else result
+        path = result.split("(")[1].split(")")[0] if "(" in result else "?"
+        content = content[:TOOL_BUBBLE_SIZE]
+        if len(content) > TOOL_BUBBLE_SIZE:
+            content += "\n... (truncado)"
+        return f"Conteúdo de {path}:\n{content}"
+    return f"Feito! {result[:100]}"
 
 
 class ChatWindow(Gtk.Window):
@@ -111,11 +171,14 @@ class ChatWindow(Gtk.Window):
         hbox.set_margin_bottom(4)
 
         label = Gtk.Label()
-        label.set_markup(f"<b>{who}:</b>  {html.escape(text)}")
+        who_escaped = html.escape(who)
+        text_markup = _linkify(text)
+        label.set_markup(f"<b>{who_escaped}:</b>  {text_markup}")
         label.set_line_wrap(True)
         label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         label.set_max_width_chars(38)
         label.set_xalign(0.0)
+        label.connect("activate-link", lambda _l, uri: (_open_url(uri), True)[1])
 
         if cls == "user":
             hbox.pack_end(label, False, False, 0)
@@ -139,13 +202,89 @@ class ChatWindow(Gtk.Window):
     def _run_tool(self, text):
         lower = text.lower().strip()
         cfg = config.load()
-        permitted = cfg.get("assistente_local", False)
+        permitted = any(cfg.get(k, False) for k in config.TOOL_KEYS)
+
+        # ── open_url (before read_file to avoid 'abra' clash) ─
+        if permitted:
+            # 1) Explicit URLs
+            m = re.search(r'(https?://\S+)', text)
+            if m:
+                return self._exec("open_url", {"url": m.group(1)})
+
+            # 2) "abre/abra/abrir o canal do X [no youtube]"
+            m = re.search(
+                r'(?:abre|abra|abrir)\s+o\s+canal\s+(?:do|da)\s+(.+?)(?:\s*no\s+youtube)?\s*$',
+                text, re.I,
+            )
+            if m:
+                q = m.group(1).strip().rstrip(".,!?")
+                # strip trailing filler words
+                q = re.sub(r'\s+(?:entao|então|pf|por\s+favor|la|lá|ai|aí)\s*$', '', q, flags=re.I)
+                if q:
+                    return self._exec("open_url", {"url": f"https://www.youtube.com/results?search_query={q.replace(' ', '+')}"})
+
+            # 3) "canal do X [no youtube]" / "youtuber X"
+            m = re.search(
+                r'(?:canal\s+(?:do|da)\s+|youtube\s+(?:do|da)\s+|youtuber\s+)'
+                r'(.+?)(?:\s*no\s+youtube)?\s*$',
+                text, re.I,
+            )
+            if m:
+                q = m.group(1).strip().rstrip(".,!?")
+                return self._exec("open_url", {"url": f"https://www.youtube.com/results?search_query={q.replace(' ', '+')}"})
+
+            # 4) "quero/queria assistir/ver X [no youtube]"
+            m = re.search(
+                r'quero\s+(?:assistir|ver)\s+(?:o\s+|a\s+)?(.+?)(?:\s*no\s+youtube)?\s*$',
+                text, re.I,
+            )
+            if m:
+                q = m.group(1).strip().rstrip(".,!?")
+                return self._exec("open_url", {"url": f"https://www.youtube.com/results?search_query={q.replace(' ', '+')}"})
+
+            # 5) "abre/abra NOME conhecido (youtube, google, github, etc)" → open URL
+            known_sites = {
+                "youtube": "https://www.youtube.com",
+                "google": "https://www.google.com",
+                "github": "https://github.com",
+                "gmail": "https://mail.google.com",
+                "maps": "https://maps.google.com",
+                "reddit": "https://www.reddit.com",
+                "twitter": "https://x.com",
+                "instagram": "https://www.instagram.com",
+                "facebook": "https://www.facebook.com",
+                "whatsapp": "https://web.whatsapp.com",
+                "amazon": "https://www.amazon.com",
+                "netflix": "https://www.netflix.com",
+                "spotify": "https://open.spotify.com",
+                "linkedin": "https://www.linkedin.com",
+                "chatgpt": "https://chatgpt.com",
+                "deepseek": "https://chat.deepseek.com",
+            }
+            site_keys = '|'.join(known_sites.keys())
+            site_pattern = r'(?:abre|abra|abrir|pode\s+abrir|queria\s+abrir|quero\s+abrir|abre\s+ai|abre\s+lá)\s+' \
+                          r'(?:(?:a|o|esse|esta|meu|minha)\s+)?(' + site_keys + r')'
+            m = re.search(site_pattern, text, re.I)
+            if m:
+                site_key = m.group(1).lower().strip()
+                url = known_sites.get(site_key, f"https://www.{site_key}.com")
+                return self._exec("open_url", {"url": url})
+
+            # 6) "abre/abra NOME" (no "canal") → assume URL or search
+            if re.search(r'\b(?:site|pagina|link)\b', lower):
+                m = re.search(r'(?:abre|abra|abrir|acessa|acessar)\s+(?:o\s+|a\s+)?(.+)', text, re.I)
+                if m:
+                    q = m.group(1).strip().rstrip(".,!?")
+                    if not re.match(r'https?://', q):
+                        q = f"https://{q}" if re.search(r'\.[a-z]{2,}', q) else f"https://www.google.com/search?q={q.replace(' ', '+')}"
+                    return self._exec("open_url", {"url": q})
 
         # ── screenshot ────────────────────────────────────
         if re.search(
             r'(?:\bprint\b|captura\s*de\s*tela|tira\s+foto|foto\s+da\s+tela|'
             r'\bscreenshot\b|mostra\s+a\s+tela|olha\s+a\s+tela|'
-            r'veja?\s+o\s+que\s+tem\s+na\s+tela)',
+            r'veja?\s+o\s+que\s+tem\s+na\s+tela|'
+            r'(?:oq|o\s+que|oque)\s+tem\s+na\s+(?:minha\s+)?tela)',
             lower,
         ):
             return self._exec("screenshot", {})
@@ -195,8 +334,7 @@ class ChatWindow(Gtk.Window):
 
         # ── read file ─────────────────────────────────────
         if re.search(self._READ_VERBS, lower) \
-                and (re.search(r'(?:arquivo|documento|texto|conteudo)', lower)
-                     or re.search(r'(?:ler|abra?|leia?|abrir)\s+', lower)):
+                and re.search(r'(?:arquivo|documento|texto|conteudo|\.\w{1,5}\s*$)', lower):
             m = re.search(
                 rf'{self._READ_VERBS}\s+(?:o\s+)?(?:arquivo\s+)?(?:chamado\s+)?'
                 rf'["\'](.+?)["\']',
@@ -278,7 +416,25 @@ class ChatWindow(Gtk.Window):
             if re.search(r'(?:bateria|nível\s+da\s+bateria|carga|energy)', lower):
                 return self._exec("run_command", {"command": "cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1 || echo 'Sem bateria detectada'"})
 
-        # ── fallback: assistente_local on, try as command ─
+        # ── app launch ────────────────────────────────────
+        if permitted:
+            m = re.search(
+                r'(?:abre|abra|abrir|inicia|iniciar|roda|rodar|'
+                r'pode\s+abrir|poderia\s+abrir|queria\s+abrir|quero\s+abrir)\s+'
+                r'(?:(?:a|o|as|os|esse|esta|este|esses|essas|essa|isso|'
+                r'meu|minha|meus|minhas|teu|tua|seu|sua|'
+                r'pra|pro|para|mim|pf|la|lá|ai|aí|por\s+favor)\s+)*'
+                r'(\w[\w.\-]*)',
+                text, re.I,
+            )
+            if m:
+                app = m.group(1).strip().rstrip(".,!?")
+                # ignore generic words and URLs
+                if not re.search(r'(canal|site|youtube|https?://|\.[a-z]{2,})', lower) \
+                        and app.lower() not in ("app", "site", "link", "pagina", "página", "isso", "isto", "aquilo", "coisa", "programa", "aplicativo", "meu", "minha", "meus", "minhas", "teu", "tua", "seu", "sua"):
+                    return self._exec("run_command", {"command": f"({app} &)"})
+
+        # ── fallback: try as command ──
         if permitted:
             # git / mkdir / apt / pip etc
             if re.search(r'^(?:git|mkdir|touch|cp|mv|rm|apt|pip|npm|yarn|docker|make|cmake|sudo)\s', text.strip()):
@@ -314,7 +470,8 @@ class ChatWindow(Gtk.Window):
 
     def _exec(self, tool_name, args):
         cfg = config.load()
-        if not cfg.get("assistente_local", False):
+        tool_cfg_key = f"tool_{tool_name}"
+        if not cfg.get(tool_cfg_key, False):
             return None
 
         tool = TOOLS.get(tool_name)
@@ -330,17 +487,18 @@ class ChatWindow(Gtk.Window):
         except TypeError as e:
             return f"erro: argumentos inválidos pra {tool_name}: {e}"
         if tool_name == "screenshot":
-            return f"screenshot: {result[:200]}"
+            return f"screenshot:{result}"
         if tool_name == "run_command":
-            print(f"[teto-pet] Comando: {args.get('command', '?')[:60]}", file=sys.stderr)
+            print(f"[mate-helper] Comando: {args.get('command', '?')[:60]}", file=sys.stderr)
             return f"run_command: {result[:500]}"
         if tool_name == "write_file":
-            print(f"[teto-pet] Arquivo: {args.get('path', '?')}", file=sys.stderr)
+            print(f"[mate-helper] Arquivo: {args.get('path', '?')}", file=sys.stderr)
             return f"write_file: {result[:200]}"
-        print(f"[teto-pet] {tool_name}: {result[:60]}", file=sys.stderr)
-        return f"{tool_name}({args.get('path', '~')}): {result[:1000]}"
+        print(f"[mate-helper] {tool_name}: {result[:60]}", file=sys.stderr)
+        display_arg = args.get('path') or args.get('url') or '~'
+        return f"{tool_name}({display_arg}): {result[:1000]}"
 
-    _TOOL_RE = re.compile(r'^TOOL:\s*(\w+)\s*(?:\|\s*(.*?))?\s*$', re.I | re.MULTILINE)
+    _TOOL_RE = re.compile(r'TOOL\s*:\s*(\w+)(?:\s*\|\s*(.+))?', re.I)
 
     def clear_history(self):
         self.history = []
@@ -352,19 +510,27 @@ class ChatWindow(Gtk.Window):
         except OSError:
             pass
 
-    def _call_ai_then_tool(self, text, depth=0):
+    def _call_ai_then_tool(self, text, depth=0, image_base64=None, silent=False):
         if depth > 3:
             return "Hmm, deu um loop nas ferramentas! >_<"
 
-        self.waiting = True
-        self.entry.set_sensitive(False)
-        thinking_row = self._add_bubble("Teto", "…", "teto")
+        if not silent:
+            self.waiting = True
+            self.entry.set_sensitive(False)
+            GLib.timeout_add_seconds(15, self._unlock_entry)
+        thinking_row = self._add_bubble("Teto", "…", "teto") if not silent else None
         user_mood = _detect_mood(text)
 
         def on_reply(reply):
-            self.msg_list.remove(thinking_row)
+            if thinking_row:
+                self.msg_list.remove(thinking_row)
 
-            m = self._TOOL_RE.search(reply)
+            self._safe_entry()
+
+            if silent and not reply:
+                return
+
+            m = self._TOOL_RE.search(reply) if reply else None
             if m:
                 tool_name = m.group(1).lower()
                 args_raw = m.group(2) or ""
@@ -372,18 +538,31 @@ class ChatWindow(Gtk.Window):
                 for pair in args_raw.split("|"):
                     if "=" in pair:
                         k, v = pair.split("=", 1)
-                        args[k.strip()] = v.strip()
+                        v = v.strip()
+                        # strip trailing emotes like >_<, ^_^, :3, etc.
+                        v = re.sub(r'\s*[>_<^:;)\]}\-]+\s*(?:[>_<^:;)\]}\-\d]+\s*)*$', '', v)
+                        args[k.strip()] = v
+
+                if tool_name == "screenshot":
+                    img = _screenshot_fn()
+                    if img and not img.startswith("erro") and not img.startswith("Não"):
+                        self._call_ai_then_tool(
+                            "Descreva o que você vê nesta captura de tela.",
+                            depth + 1, image_base64=img, silent=True,
+                        )
+                        return
+                    self._add_bubble("Teto", img or "Não consegui capturar a tela...", "teto")
+                    self.emit("teto-speech", img or "Não consegui capturar a tela...", Mood.TRISTE)
+                    return
 
                 tool_result = self._exec(tool_name, args)
                 if tool_result:
                     self.history.append({"role": "assistant", "content": f"[Ferramenta {tool_name} executada]"})
                     self._call_ai_then_tool(
                         f"{text}\n\n[Resultado de {tool_name}: {tool_result}]",
-                        depth + 1,
+                        depth + 1, silent=True,
                     )
                 else:
-                    self.waiting = False
-                    self.entry.set_sensitive(True)
                     bubble_text = "Hmm, não consegui usar essa ferramenta..."
                     self.history.append({"role": "assistant", "content": bubble_text})
                     _save_history(self.history)
@@ -391,19 +570,31 @@ class ChatWindow(Gtk.Window):
                     self.emit("teto-speech", bubble_text, Mood.TRISTE)
                 return
 
-            self.waiting = False
-            self.entry.set_sensitive(True)
-            self.history.append({"role": "assistant", "content": reply})
-            _save_history(self.history)
+            if reply:
+                self.history.append({"role": "assistant", "content": reply})
+                _save_history(self.history)
 
-            reply_mood = _detect_mood(reply)
-            if reply_mood == Mood.NORMAL and user_mood != Mood.NORMAL:
-                reply_mood = user_mood
+                reply_mood = _detect_mood(reply)
+                if reply_mood == Mood.NORMAL and user_mood != Mood.NORMAL:
+                    reply_mood = user_mood
 
-            self._add_bubble("Teto", reply, "teto")
-            self.emit("teto-speech", reply, reply_mood)
+                self._add_bubble("Teto", reply, "teto")
+                self.emit("teto-speech", reply, reply_mood)
 
-        ai.ask(text, self.history, callback=on_reply)
+        if image_base64:
+            ai.ask(text, self.history, callback=on_reply, image_base64=image_base64)
+        else:
+            ai.ask(text, self.history, callback=on_reply)
+
+    def _safe_entry(self):
+        self.waiting = False
+        self.entry.set_sensitive(True)
+
+    def _unlock_entry(self):
+        if self.waiting:
+            self._safe_entry()
+            print("[mate-helper] ⚠ entrada destravada por segurança (30s)", file=sys.stderr)
+        return False
 
     def _on_send(self, _widget=None):
         text = self.entry.get_text().strip()
@@ -413,6 +604,34 @@ class ChatWindow(Gtk.Window):
         self.entry.set_text("")
         self._add_bubble("Você", text, "user")
         self.history.append({"role": "user", "content": text})
+        print(f"[mate-helper] Você: {text}", file=sys.stderr)
+
+        kw_result = self._run_tool(text)
+        if kw_result:
+            cfg = config.load()
+            words = _tool_display_words(kw_result)
+            self._add_bubble("Teto", words, "teto")
+            self.history.append({"role": "assistant", "content": words})
+            _save_history(self.history)
+            self.emit("teto-speech", words, Mood.NORMAL)
+            print(f"[mate-helper] Teto: {words}", file=sys.stderr)
+
+            if cfg.get("ai_provider", config.PROVIDER_AUTO) != config.PROVIDER_PHRASES:
+                if kw_result.startswith("screenshot:"):
+                    img_b64 = kw_result[len("screenshot:"):]
+                    self._call_ai_then_tool(
+                        "Descreva o que você vê nesta captura de tela em português, "
+                        "com detalhes! Fale sobre os aplicativos abertos, janelas, "
+                        "icones e qualquer coisa interessante na tela.",
+                        silent=True, image_base64=img_b64,
+                    )
+                else:
+                    self._call_ai_then_tool(
+                        f"{text}\n\n[Resultado de ferramenta: {kw_result}]\n\n"
+                        f"Responda naturalmente como amiga, comentando o resultado.",
+                        silent=True,
+                    )
+            return
 
         self._call_ai_then_tool(text)
 

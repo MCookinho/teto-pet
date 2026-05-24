@@ -6,102 +6,117 @@ import requests
 from gi.repository import GLib
 
 from teto_pet import phrases, config
+from teto_pet.models import model
 
-SYSTEM = (
-    "You are Kasane Teto, an energetic and playful UTAU vocaloid. "
-    "Keep answers short (1-2 sentences), cute, and in Portuguese (Brazilian). "
-    "Use emoticons like ^_^, :3, >_<, etc. "
-    "You are a desktop companion and best friend."
-)
+SYSTEM = model.SYSTEM_PROMPT
 
 TOOL_SYSTEM = (
-    "You have access to these tools:\n"
+    "You have REAL abilities on the user's computer. You can actually do these things:\n"
     "- list_files path=<dir> — list files in a directory\n"
     "- read_file path=<file> — read a text file\n"
     "- run_command command=<bash> — run any bash command\n"
     "- write_file path=<file> content=<text> — write/create a file\n"
-    "- screenshot — capture the screen\n"
-    "If you need to use a tool to answer the user, respond with EXACTLY:\n"
+    "- open_url url=<url> — open a URL in the browser\n"
+    "- screenshot — capture the screen (then you can see and describe it)\n"
+    "CRITICAL: NEVER say you can't do something or that you're just a virtual assistant. "
+    "You have real computer control. Use a tool to do it.\n"
+    "To use a tool, respond with EXACTLY one line starting with TOOL:\n"
     "TOOL: <name> | <key>=<value> | ...\n"
-    "After the tool runs, you will see the result and should answer naturally.\n"
-    "Example: user asks 'what files are in my Downloads?' → "
-    "TOOL: list_files | path=~/Downloads\n"
-    "Then in your next response, describe the files cutely.\n"
-    "IMPORTANT: Never make up file contents. Always use a tool to check."
+    "Do NOT wrap it in brackets, markdown, or extra text.\n"
+    "When you see [Resultado de <tool>: ...] in the conversation, that means the "
+    "tool already ran successfully. Respond naturally about what happened.\n"
+    "NEVER make up file contents. Always use a tool to check.\n"
+    "NEVER guess about the user's computer. Use run_command instead."
 )
 
 
-def ask(message, history=None, callback=None, tool_context=None):
+def ask(message, history=None, callback=None, tool_context=None, image_base64=None):
     if not history:
         history = []
     p = config.load().get("ai_provider", config.PROVIDER_AUTO)
-    return ask_with_provider(p, message, history, callback, tool_context)
+    return ask_with_provider(p, message, history, callback, tool_context, image_base64)
 
 
-def ask_with_provider(provider, message, history, callback=None, tool_context=None):
+def ask_with_provider(provider, message, history, callback=None, tool_context=None, image_base64=None):
     if not history:
         history = []
     if callback is None:
-        return _run_provider(provider, message, history, tool_context)
+        return _run_provider(provider, message, history, tool_context, image_base64)
     thread = threading.Thread(
-        target=lambda: GLib.idle_add(callback, _run_provider(provider, message, history, tool_context)),
+        target=lambda: GLib.idle_add(callback, _run_provider(provider, message, history, tool_context, image_base64)),
         daemon=True,
     )
     thread.start()
 
 
-def _run_provider(provider, message, history, tool_context=None):
+def _run_provider(provider, message, history, tool_context=None, image_base64=None):
     msg = message
     if tool_context:
         msg = f"{message}\n\n[Ferramenta usada: {tool_context}]"
 
     if provider == config.PROVIDER_AUTO:
-        reply = _ask_gemini(msg, history)
+        reply = _ask_groq(msg, history, image_base64)
         if reply:
-            print(f"[teto-pet] Gemini: {reply}", file=sys.stderr)
+            print(f"[mate-helper] Groq: {reply}", file=sys.stderr)
+            return reply
+        reply = _ask_gemini(msg, history, image_base64)
+        if reply:
+            if not reply.startswith("TOOL:"):
+                print(f"[mate-helper] Gemini: {reply}", file=sys.stderr)
             return reply
         reply = _ask_hf(msg, history)
         if reply:
-            print(f"[teto-pet] HuggingFace: {reply}", file=sys.stderr)
+            print(f"[mate-helper] HuggingFace: {reply}", file=sys.stderr)
             return reply
         reply = _ask_ollama(msg, history)
         if reply:
-            print(f"[teto-pet] Ollama: {reply}", file=sys.stderr)
+            print(f"[mate-helper] Ollama: {reply}", file=sys.stderr)
             return reply
         f = phrases.get_fallback(msg, history)
-        print(f"[teto-pet] Frases: {f}", file=sys.stderr)
+        print(f"[mate-helper] Frases: {f}", file=sys.stderr)
         return f
 
     if provider == config.PROVIDER_OLLAMA:
         reply = _ask_ollama(msg, history)
         if reply:
-            print(f"[teto-pet] Ollama: {reply}", file=sys.stderr)
+            print(f"[mate-helper] Ollama: {reply}", file=sys.stderr)
             return reply
         f = phrases.get_fallback(msg, history)
-        print(f"[teto-pet] Frases: {f}", file=sys.stderr)
+        print(f"[mate-helper] Frases: {f}", file=sys.stderr)
         return f
 
     if provider == config.PROVIDER_HF:
         reply = _ask_hf(msg, history)
         if reply:
-            print(f"[teto-pet] HuggingFace: {reply}", file=sys.stderr)
+            print(f"[mate-helper] HuggingFace: {reply}", file=sys.stderr)
             return reply
         f = phrases.get_fallback(msg, history)
-        print(f"[teto-pet] Frases: {f}", file=sys.stderr)
+        print(f"[mate-helper] Frases: {f}", file=sys.stderr)
         return f
 
     if provider == "gemini":
-        reply = _ask_gemini(msg, history)
+        reply = _ask_gemini(msg, history, image_base64)
         if reply:
-            print(f"[teto-pet] Gemini: {reply}", file=sys.stderr)
+            if not reply.startswith("TOOL:"):
+                print(f"[mate-helper] Gemini: {reply}", file=sys.stderr)
             return reply
         key = config.load().get("gemini_key", "")
         if not key:
             return "Hmm, você selecionou Gemini mas não configurou a chave! 🛡️\nVá no menu e clique em **Configurar Gemini** pra pegar uma chave grátis!"
         return "Gemini não respondeu. Pode ser cota esgotada ou chave inválida. Tenta outra chave em Configurar Gemini."
 
+    if provider == config.PROVIDER_GROQ:
+        reply = _ask_groq(msg, history, image_base64)
+        if reply:
+            print(f"[mate-helper] Groq: {reply}", file=sys.stderr)
+            return reply
+        key = config.load().get("groq_key", "")
+        if not key:
+            return "Hmm, você selecionou Groq mas não configurou a chave! 🛡️\nVá no menu em **Configurar Groq...** pra pegar uma chave grátis!"
+        return "Groq não respondeu. Pode ser cota esgotada ou chave inválida."
+
     f = phrases.get_fallback(msg, history)
-    print(f"[teto-pet] Frases: {f}", file=sys.stderr)
+    print(f"[mate-helper] Frases: {f}", file=sys.stderr)
     return f
 
 
@@ -130,7 +145,13 @@ def _resolve(host, timeout=3):
 def _build_messages(history, message):
     cfg = config.load()
     sys_msg = SYSTEM
-    if cfg.get("assistente_local", False):
+    user_name = cfg.get("user_name", "").strip()
+    user_bio = cfg.get("user_bio", "").strip()
+    if user_name:
+        sys_msg += f"\n\nO usuário se chama {user_name}. SEMPRE o trate por {user_name} e nunca se esqueça do nome dele(a)."
+    if user_bio:
+        sys_msg += f"\nInformações sobre o usuário: {user_bio}"
+    if any(cfg.get(k, False) for k in config.TOOL_KEYS):
         sys_msg += "\n\n" + TOOL_SYSTEM
     msgs = [{"role": "system", "content": sys_msg}]
     for h in history[-8:]:
@@ -153,6 +174,8 @@ def _ask_ollama(message, history):
 
 
 def _ollama_model():
+    cfg = config.load()
+    preferred = cfg.get("ollama_model", "").strip()
     try:
         resp = requests.get("http://localhost:11434/api/tags", timeout=3)
         if resp.status_code != 200:
@@ -160,9 +183,14 @@ def _ollama_model():
         models = resp.json().get("models", [])
         if not models:
             return None
-        model_names = sorted(m["name"] for m in models)
-        chosen = model_names[0]
-        return chosen
+
+        if preferred:
+            for m in models:
+                if m["name"] == preferred:
+                    return preferred
+
+        sorted_models = sorted(models, key=lambda m: m.get("size", 0), reverse=True)
+        return sorted_models[0]["name"]
     except requests.RequestException:
         return None
 
@@ -184,7 +212,7 @@ def _ollama_chat(model, messages):
                 text = text.strip()
                 return text
     except requests.RequestException as e:
-        print(f"[teto-pet] Ollama error: {e}", file=sys.stderr)
+        print(f"[mate-helper] Ollama error: {e}", file=sys.stderr)
     return None
 
 
@@ -207,14 +235,14 @@ def _ask_hf(message, history):
                 f"https://api-inference.huggingface.co/models/{model_id}",
                 json={"inputs": prompt, "parameters": _params(fmt)},
                 timeout=10,
-                headers={"User-Agent": "teto-pet/1.0"},
+                headers={"User-Agent": "mate-helper/1.0"},
             )
         except requests.RequestException as e:
-            print(f"[teto-pet] HF {model_id} error: {e}", file=sys.stderr)
+            print(f"[mate-helper] HF {model_id} error: {e}", file=sys.stderr)
             continue
 
         if resp.status_code == 503:
-            print(f"[teto-pet] HF {model_id} loading (503)", file=sys.stderr)
+            print(f"[mate-helper] HF {model_id} loading (503)", file=sys.stderr)
             continue
         if resp.status_code != 200:
             continue
@@ -244,24 +272,34 @@ GEMINI_MODELS = [
 ]
 
 
-def _ask_gemini(message, history):
+def _ask_gemini(message, history, image_base64=None):
     key = config.load().get("gemini_key", "")
     if not key:
         return None
 
     if not _resolve("generativelanguage.googleapis.com"):
-        print("[teto-pet] Gemini domain unreachable", file=sys.stderr)
+        print("[mate-helper] Gemini domain unreachable", file=sys.stderr)
         return None
 
     contents = []
     for h in history[-8:]:
         role = "user" if h["role"] == "user" else "model"
         contents.append({"role": role, "parts": [{"text": h["content"]}]})
-    contents.append({"role": "user", "parts": [{"text": message}]})
+
+    if image_base64:
+        user_part = {
+            "parts": [
+                {"inlineData": {"mimeType": "image/png", "data": image_base64}},
+                {"text": message},
+            ]
+        }
+    else:
+        user_part = {"parts": [{"text": message}]}
+    contents.append({"role": "user", **user_part})
 
     cfg = config.load()
     sys_msg = SYSTEM
-    if cfg.get("assistente_local", False):
+    if any(cfg.get(k, False) for k in config.TOOL_KEYS):
         sys_msg += "\n\n" + TOOL_SYSTEM
 
     for model in GEMINI_MODELS:
@@ -276,7 +314,7 @@ def _ask_gemini(message, history):
                         "temperature": 0.8,
                     },
                 },
-                timeout=15,
+                timeout=30,
             )
             if resp.status_code == 200:
                 data = resp.json()
@@ -295,10 +333,76 @@ def _ask_gemini(message, history):
             else:
                 continue
         except requests.RequestException as e:
-            print(f"[teto-pet] Gemini request failed: {e}", file=sys.stderr)
+            print(f"[mate-helper] Gemini request failed: {e}", file=sys.stderr)
             continue
 
     return None
+
+
+# ─── Groq ──────────────────────────────────────────────────
+
+GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+
+def _ask_groq(message, history, image_base64=None):
+    key = config.load().get("groq_key", "")
+    if not key:
+        return None
+
+    msgs = _build_messages(history, message)
+    chat_msgs = [m for m in msgs if m["role"] != "system"]
+    sys_prompt = next((m["content"] for m in msgs if m["role"] == "system"), "")
+
+    if image_base64:
+        model = GROQ_VISION_MODEL
+        max_tokens = 300
+        for i, m in enumerate(chat_msgs):
+            if m["role"] == "user":
+                chat_msgs[i] = {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": m["content"]},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{image_base64}"
+                            },
+                        },
+                    ],
+                }
+                break
+    else:
+        model = GROQ_MODEL
+        max_tokens = 200
+
+    try:
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            json={
+                "model": model,
+                "messages": [{"role": "system", "content": sys_prompt}] + chat_msgs,
+                "max_tokens": max_tokens,
+                "temperature": 0.8,
+            },
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            text = resp.json()["choices"][0]["message"]["content"].strip()
+            return text
+        elif resp.status_code == 429:
+            print("[mate-helper] Groq: cota esgotada (429)", file=sys.stderr)
+            return None
+        elif resp.status_code == 401:
+            print("[mate-helper] Groq: chave inválida (401)", file=sys.stderr)
+            return None
+        else:
+            print(f"[mate-helper] Groq error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
+            return None
+    except requests.RequestException as e:
+        print(f"[mate-helper] Groq request failed: {e}", file=sys.stderr)
+        return None
 
 
 # ─── Ollama auto-management ────────────────────────────────
@@ -320,10 +424,10 @@ def ollama_ensure_running():
         pass
 
     if not subprocess.run(["which", "ollama"], capture_output=True).returncode == 0:
-        print("[teto-pet] Ollama not installed", file=sys.stderr)
+        print("[mate-helper] Ollama not installed", file=sys.stderr)
         return False
 
-    print("[teto-pet] Starting Ollama...", file=sys.stderr)
+    print("[mate-helper] Starting Ollama...", file=sys.stderr)
     try:
         subprocess.Popen(
             ["ollama", "serve"],
@@ -336,12 +440,12 @@ def ollama_ensure_running():
             try:
                 resp = requests.get("http://localhost:11434/api/tags", timeout=2)
                 if resp.status_code == 200:
-                    print("[teto-pet] Ollama started!", file=sys.stderr)
+                    print("[mate-helper] Ollama started!", file=sys.stderr)
                     return True
             except requests.RequestException:
                 pass
     except Exception as e:
-        print(f"[teto-pet] Failed to start Ollama: {e}", file=sys.stderr)
+        print(f"[mate-helper] Failed to start Ollama: {e}", file=sys.stderr)
 
     return False
 
@@ -350,7 +454,7 @@ def ollama_stop():
     global _ollama_started_by_us
     if not _ollama_started_by_us:
         return
-    print("[teto-pet] Stopping Ollama...", file=sys.stderr)
+    print("[mate-helper] Stopping Ollama...", file=sys.stderr)
     subprocess.run(["pkill", "ollama"], capture_output=True)
     _ollama_started_by_us = False
 
