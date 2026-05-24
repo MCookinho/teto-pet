@@ -288,16 +288,20 @@ class ChatWindow(Gtk.Window):
 
     def _parse_path(self, raw):
         raw = raw.strip().rstrip(".,!?;:")
-        if re.search(r'^(?:(?:minha\s+)?(?:home|pastas?(?:\s+home)?|diretorio)|meu\s+home)\s*$', raw, re.I):
+        # strip filler words and directory keywords
+        raw = re.sub(
+            r'^(?:(?:minha|meu|nossa|nosso|suas?|tuas?|a|o|as|os|da|do|das|dos|de|em|no|na|nos|nas|'
+            r'pastas?|diretorio|dir|home|pasta)\s+)+',
+            '', raw, re.I,
+        )
+        if not raw or re.search(r'^(?:(?:minha\s+)?(?:home|pastas?(?:\s+home)?|diretorio)|meu\s+home)\s*$', raw, re.I):
             return "~"
         expanded = os.path.expanduser(raw)
         if os.path.exists(expanded):
             return expanded
-        # case-insensitive fallback for Linux
         resolved = _resolve_ci(expanded)
         if resolved:
             return resolved
-        # try as ~/raw
         if not raw.startswith("~") and not raw.startswith("/") and not raw.startswith("."):
             expanded = os.path.expanduser(f"~/{raw}")
             if os.path.exists(expanded):
