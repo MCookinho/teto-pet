@@ -1,5 +1,6 @@
 import os
 import re
+import html
 
 from gi.repository import Gtk, Pango, GObject
 
@@ -9,8 +10,18 @@ from teto_pet.tools import TOOLS, TOOL_KEYWORDS
 
 
 def _detect_mood(text):
-    words = set(text.lower().split())
-    if words & {"triste", "chateado", "chateada", "depre", "mal", "ruim", "tristeza", "sorry", "desculpa"}:
+    lower = text.lower()
+    if re.search(
+        r'(?:te\s+(?:odeio|odio|detesto|acho|considero|chamo)\s+de\s+'
+        r'|teto\s+(?:é|eh)\s+'
+        r'|você\s+(?:é|eh)\s+(?:muito\s+)?(?:chata|ruim|horrível|horrivel|inútil|inutil|idiota|feia|boba|burra|nojenta|chatona)'
+        r'|(?:que\s+)?chata\s+(?:que\s+)?você\s+é'
+        r'|cala\s+a\s+boca|some\s+daqui|desliga|fecha\s+(?:essa\s+)?janela)',
+        lower,
+    ):
+        return Mood.TRISTE
+    words = set(lower.split())
+    if words & {"triste", "chateado", "chateada", "depre", "mal", "tristeza", "sorry", "desculpa"}:
         return Mood.TRISTE
     if words & {"raiva", "ódio", "odio", "puto", "puta", "raiva", "bravo", "brava"}:
         return Mood.RAIVA
@@ -72,7 +83,7 @@ class ChatWindow(Gtk.Window):
         hbox.set_margin_bottom(4)
 
         label = Gtk.Label()
-        label.set_markup(f"<b>{who}:</b>  {text}")
+        label.set_markup(f"<b>{who}:</b>  {html.escape(text)}")
         label.set_line_wrap(True)
         label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
         label.set_max_width_chars(38)
@@ -146,6 +157,12 @@ class ChatWindow(Gtk.Window):
         m = re.search(r'^(?:listar?|lista)\s+["\']?(\S+)["\']?$', text.strip(), re.I)
         if m:
             return self._exec("list_files", {"path": self._parse_path(m.group(1))})
+
+        # ── "leia/abra a pasta/home/diretorio" → list_files
+        if re.search(r'(?:ler|abra?|leia?|abrir)\s+(?:a\s+|o\s+)?(?:pasta|home|diretorio)', lower):
+            m = re.search(r'(?:ler|abra?|leia?|abrir)\s+(?:a\s+|o\s+)?(?:pasta|home|diretorio)\s+(.+)?$', lower)
+            path = m.group(1).strip() if m and m.group(1) else "~"
+            return self._exec("list_files", {"path": self._parse_path(path)})
 
         # ── read file ─────────────────────────────────────
         if re.search(self._READ_VERBS, lower) \
