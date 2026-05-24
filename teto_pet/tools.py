@@ -1,5 +1,7 @@
 import os
 import io
+import re
+import shlex
 import base64
 import subprocess
 import tempfile
@@ -7,6 +9,21 @@ import tempfile
 from PIL import ImageGrab
 
 MAX_FILE_CHARS = 2000
+MAX_OUTPUT_CHARS = 3000
+CMD_TIMEOUT = 30
+
+DANGEROUS_PATTERNS = [
+    r'\brm\s+-rf\s+/\s*$',
+    r'\brm\s+-rf\s+--no-preserve-root\b',
+    r'\bdd\s+if=',
+    r'\bmkfs\.',
+    r'\bmkswap\b',
+    r'\b:\(\)\s*\{',
+    r'\bchmod\s+777\s+/',
+    r'\b>(\s+/dev/\w+)',
+    r'\bshred\b',
+]
+DANGEROUS_RE = re.compile('|'.join(DANGEROUS_PATTERNS))
 
 
 def read_file(path):
@@ -123,6 +140,46 @@ def screenshot():
     return "Não consegui capturar a tela. Tenta instalar: grim (Wayland) ou gnome-screenshot"
 
 
+def run_command(command):
+    if DANGEROUS_RE.search(command):
+        return "Comando bloqueado por segurança (parece destrutivo demais)"
+
+    expanded = os.path.expanduser(command)
+    try:
+        result = subprocess.run(
+            ["bash", "-c", expanded],
+            capture_output=True,
+            timeout=CMD_TIMEOUT,
+            text=True,
+        )
+        out = (result.stdout or "") + (result.stderr or "")
+        if not out.strip():
+            out = f"(ok, exit code {result.returncode})"
+        if len(out) > MAX_OUTPUT_CHARS:
+            out = out[:MAX_OUTPUT_CHARS] + f"\n\n... (truncado, {len(out)} chars)"
+        return out.strip()
+    except subprocess.TimeoutExpired:
+        return "Comando excedeu o tempo limite (30s)"
+    except OSError as e:
+        return f"Erro ao executar: {e}"
+
+
+def write_file(path, content):
+    expanded = os.path.expanduser(path)
+    parent = os.path.dirname(expanded)
+    if parent and not os.path.exists(parent):
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except OSError as e:
+            return f"Não consegui criar o diretório {parent}: {e}"
+    try:
+        with open(expanded, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Arquivo salvo em {path} ({len(content)} chars)"
+    except OSError as e:
+        return f"Erro ao escrever {path}: {e}"
+
+
 TOOLS = {
     "read_file": {
         "name": "read_file",
@@ -142,6 +199,18 @@ TOOLS = {
         "execute": screenshot,
         "parameters": {},
     },
+    "run_command": {
+        "name": "run_command",
+        "description": "Executa um comando bash no computador",
+        "execute": run_command,
+        "parameters": {"command": "comando bash para executar"},
+    },
+    "write_file": {
+        "name": "write_file",
+        "description": "Escreve conteúdo em um arquivo (cria se não existir)",
+        "execute": write_file,
+        "parameters": {"path": "caminho do arquivo", "content": "conteúdo a escrever"},
+    },
 }
 
 TOOL_KEYWORDS = {
@@ -156,5 +225,12 @@ TOOL_KEYWORDS = {
     "screenshot": [
         "print", "captura", "tira", "foto", "tela", "screenshot",
         "capturar", "tirar", "imagem",
+    ],
+    "run_command": [
+        "roda", "execute", "executa", "comando", "bash", "shell",
+        "instala", "cria", "faz", "remove", "deleta", "apaga",
+    ],
+    "write_file": [
+        "escreve", "salva", "cria arquivo", "cria um arquivo",
     ],
 }

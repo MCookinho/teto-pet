@@ -185,11 +185,46 @@ class ChatWindow(Gtk.Window):
                 if not re.search(r'^(?:pasta|home|diretorio|meu|minha|na|no|em|a\s+|o\s+)', path, re.I):
                     return self._exec("read_file", {"path": path})
 
-        # ── fallback: any mention of home/pasta/arquivo ──
-        if re.search(r'\b(?:home|pasta|diretorio|arquivo)\b', lower):
-            path = "~" if re.search(r'(?:home|pasta|diretorio)', lower) else None
-            if path:
-                return self._exec("list_files", {"path": path})
+        # ── write file ────────────────────────────────────
+        # "cria/salva/escreve [um] arquivo X [com] Y"
+        m = re.search(
+            r'(?:cria|salva|escreve|criar)\s+(?:um\s+)?arquivo\s+["\']?(.+?)["\']?\s+'
+            r'(?:com\s+(?:o\s+)?(?:conteudo|texto)?\s*)(.+)',
+            text, re.I | re.DOTALL,
+        )
+        if m:
+            return self._exec("write_file", {
+                "path": m.group(1).strip(),
+                "content": m.group(2).strip(),
+            })
+
+        # "escreve EM/NO/NA X: Y"
+        m = re.search(
+            r'(?:escreve|salva)\s+(?:em|no|na)\s+["\']?(.+?)["\']?\s*:\s*(.+)',
+            text, re.I | re.DOTALL,
+        )
+        if m:
+            return self._exec("write_file", {
+                "path": m.group(1).strip(),
+                "content": m.group(2).strip(),
+            })
+
+        # ── run command ───────────────────────────────────
+        # "roda/execute/executa X"
+        m = re.search(r'(?:roda|execute|executa|rodar|vamos\s+lá)\s+(.*)', text, re.I)
+        if m:
+            return self._exec("run_command", {"command": m.group(1).strip()})
+
+        # "instala X"
+        m = re.search(r'(?:instala|instalar)\s+(.*)', text, re.I)
+        if m:
+            return self._exec("run_command", {"command": m.group(1).strip()})
+
+        # ── fallback: assistente_local on, try as command ─
+        if permitted:
+            # git / mkdir / apt / pip etc
+            if re.search(r'^(?:git|mkdir|touch|cp|mv|rm|apt|pip|npm|yarn|docker|make|cmake|sudo)\s', text.strip()):
+                return self._exec("run_command", {"command": text.strip()})
 
         return None
 
@@ -210,10 +245,17 @@ class ChatWindow(Gtk.Window):
         if not tool:
             return None
 
-        result = tool["execute"](**args)
+        try:
+            result = tool["execute"](**args)
+        except TypeError as e:
+            return f"erro: argumentos inválidos pra {tool_name}: {e}"
         if tool_name == "screenshot":
             return f"screenshot: {result[:200]}"
-        return f"{tool_name}({args.get('path', '~')}): {result}"
+        if tool_name == "run_command":
+            return f"run_command: {result[:500]}"
+        if tool_name == "write_file":
+            return f"write_file: {result[:200]}"
+        return f"{tool_name}({args.get('path', '~')}): {result[:1000]}"
 
     def _on_send(self, _widget=None):
         text = self.entry.get_text().strip()
