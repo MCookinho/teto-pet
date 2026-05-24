@@ -1,4 +1,5 @@
 import math
+import os
 import random
 
 import gi
@@ -281,6 +282,10 @@ class TetoPet(Gtk.Window):
         local_item.connect("toggled", self._toggle_assistente)
         menu.append(local_item)
 
+        clear_item = Gtk.MenuItem.new_with_label("Limpar Histórico")
+        clear_item.connect("activate", self._clear_history)
+        menu.append(clear_item)
+
         menu.append(Gtk.SeparatorMenuItem())
 
         about_item = Gtk.MenuItem.new_with_label("Sobre")
@@ -311,6 +316,15 @@ class TetoPet(Gtk.Window):
 
     def _on_chat_closed(self, _w=None):
         self.chat_window = None
+
+    def _clear_history(self, _item=None):
+        if self.chat_window is not None:
+            self.chat_window.clear_history()
+        else:
+            try:
+                os.remove(os.path.expanduser("~/.config/teto-pet/chat_history.json"))
+            except OSError:
+                pass
 
     def _toggle_ontop(self, item):
         self.cfg["always_on_top"] = item.get_active()

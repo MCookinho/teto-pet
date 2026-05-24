@@ -342,6 +342,16 @@ class ChatWindow(Gtk.Window):
 
     _TOOL_RE = re.compile(r'^TOOL:\s*(\w+)\s*(?:\|\s*(.*?))?\s*$', re.I | re.MULTILINE)
 
+    def clear_history(self):
+        self.history = []
+        for row in list(self.msg_list.get_children()):
+            self.msg_list.remove(row)
+        self._add_bubble("Teto", "Oii! Que bom te ver! ^_^", "teto")
+        try:
+            os.remove(HISTORY_FILE)
+        except OSError:
+            pass
+
     def _call_ai_then_tool(self, text, depth=0):
         if depth > 3:
             return "Hmm, deu um loop nas ferramentas! >_<"
