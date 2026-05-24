@@ -64,7 +64,10 @@ def _run_provider(provider, message, history):
         reply = _ask_gemini(message, history)
         if reply:
             return reply
-        return phrases.get_fallback(message, history)
+        key = config.load().get("gemini_key", "")
+        if not key:
+            return "Hmm, você selecionou Gemini mas não configurou a chave! 🛡️\nVá no menu e clique em **Configurar Gemini** pra pegar uma chave grátis!"
+        return "Gemini não respondeu. Pode ser cota esgotada ou chave inválida. Tenta outra chave em Configurar Gemini."
 
     return phrases.get_fallback(message, history)
 
@@ -199,6 +202,12 @@ def _ask_hf(message, history):
 
 # ─── Gemini ────────────────────────────────────────────────
 
+GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+]
+
 
 def _ask_gemini(message, history):
     key = config.load().get("gemini_key", "")
@@ -215,32 +224,43 @@ def _ask_gemini(message, history):
         contents.append({"role": role, "parts": [{"text": h["content"]}]})
     contents.append({"role": "user", "parts": [{"text": message}]})
 
-    try:
-        resp = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
-            json={
-                "contents": contents,
-                "systemInstruction": {"parts": [{"text": SYSTEM}]},
-                "generationConfig": {
-                    "maxOutputTokens": 200,
-                    "temperature": 0.8,
+    for model in GEMINI_MODELS:
+        try:
+            resp = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+                json={
+                    "contents": contents,
+                    "systemInstruction": {"parts": [{"text": SYSTEM}]},
+                    "generationConfig": {
+                        "maxOutputTokens": 200,
+                        "temperature": 0.8,
+                    },
                 },
-            },
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    text = parts[0].get("text", "")
-                    print(f"[teto-pet] Gemini: {text[:60]}", file=sys.stderr)
-                    return text
-        else:
-            print(f"[teto-pet] Gemini error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
-    except requests.RequestException as e:
-        print(f"[teto-pet] Gemini error: {e}", file=sys.stderr)
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        text = parts[0].get("text", "")
+                        print(f"[teto-pet] Gemini ({model}): {text[:60]}", file=sys.stderr)
+                        return text
+            elif resp.status_code == 429:
+                print(f"[teto-pet] Gemini {model} quota exceeded, trying next...", file=sys.stderr)
+                continue
+            elif resp.status_code == 403:
+                return "Sua chave Gemini parece inválida ou expirou. Vá em Configurar Gemini e cole uma chave nova grátis em https://aistudio.google.com/apikey"
+            elif resp.status_code == 404:
+                print(f"[teto-pet] Gemini {model} not found, trying next...", file=sys.stderr)
+                continue
+            else:
+                print(f"[teto-pet] Gemini {model} error {resp.status_code}", file=sys.stderr)
+                continue
+        except requests.RequestException as e:
+            print(f"[teto-pet] Gemini request failed: {e}", file=sys.stderr)
+            continue
 
     return None
 
