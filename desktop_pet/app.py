@@ -827,10 +827,13 @@ class TetoPet(Gtk.Window):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
 
         if self.cfg.get("fullscreen", False) and self._bg_surface is not None:
-            cr.set_operator(cairo.Operator.SOURCE)
+            log("BG: desenhando fundo %dx%d na janela %dx%d",
+                self._bg_surface.get_width(), self._bg_surface.get_height(), w, h)
             bw = self._bg_surface.get_width()
             bhi = self._bg_surface.get_height()
             cr.save()
+            cr.set_operator(cairo.Operator.SOURCE)
+            cr.translate(0, 0)
             cr.scale(w / bw, h / bhi)
             cr.set_source_surface(self._bg_surface, 0, 0)
             cr.paint()
@@ -1578,20 +1581,29 @@ class TetoPet(Gtk.Window):
 
     def _load_background(self):
         self._bg_surface = None
-        for ext in ("jpg", "jpeg", "png"):
-            path = os.path.join(model.MODEL_DIR, f"background.{ext}")
-            if os.path.exists(path):
-                try:
-                    from PIL import Image
-                    import io
-                    img = Image.open(path).convert("RGBA")
-                    with io.BytesIO() as buf:
-                        img.save(buf, format="PNG")
-                        buf.seek(0)
-                        self._bg_surface = cairo.ImageSurface.create_from_png(buf)
-                except Exception:
-                    pass
-                return
+        search_dirs = [
+            model.MODEL_DIR,
+            os.path.dirname(os.path.abspath(__file__)),
+        ]
+        for search_dir in search_dirs:
+            for ext in ("jpg", "jpeg", "png"):
+                path = os.path.join(search_dir, f"background.{ext}")
+                log("BG: checking %s", path)
+                if os.path.exists(path):
+                    try:
+                        from PIL import Image
+                        import io
+                        img = Image.open(path).convert("RGBA")
+                        with io.BytesIO() as buf:
+                            img.save(buf, format="PNG")
+                            buf.seek(0)
+                            self._bg_surface = cairo.ImageSurface.create_from_png(buf)
+                        log("BG: loaded %s (%dx%d)", path,
+                            self._bg_surface.get_width(), self._bg_surface.get_height())
+                    except Exception as e:
+                        log("BG: erro ao carregar %s: %s", path, e)
+                    return
+        log("BG: nenhum background.jpg/.png encontrado em %s", search_dirs)
 
     def _toggle_tool(self, item, key):
         self.cfg[key] = item.get_active()
