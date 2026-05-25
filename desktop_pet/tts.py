@@ -1,9 +1,14 @@
 import os
+import signal
 import subprocess
 import tempfile
 import threading
 
 from desktop_pet.log import log
+
+_tts_lock = threading.Lock()
+_current_proc = None
+_proc_lock = threading.Lock()
 
 TTS_PROVIDER_AUTO = "auto"
 TTS_PROVIDER_FISH = "fish_audio"
@@ -64,15 +69,50 @@ def _get_sink_description(name):
         return None
 
 
-def _play_audio(path, device=None):
+def _play_audio(path, device=None, volume=None):
+    global _current_proc
+    if volume is None:
+        try:
+            from desktop_pet import config as _cfg
+            volume = _cfg.load().get("tts_volume", 100)
+        except Exception:
+            volume = 100
     env = os.environ.copy()
     if device:
         env["PULSE_SINK"] = device
-    subprocess.run(
-        ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path],
+    proc = subprocess.Popen(
+        ["ffplay", "-nodisp", "-autoexit", "-volume", str(volume), "-loglevel", "quiet", path],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        env=env, timeout=30,
+        env=env,
     )
+    with _proc_lock:
+        _current_proc = proc
+    try:
+        proc.wait(timeout=120)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    finally:
+        with _proc_lock:
+            if _current_proc is proc:
+                _current_proc = None
+
+
+def stop_current_audio():
+    global _current_proc
+    with _proc_lock:
+        if _current_proc is not None:
+            try:
+                _current_proc.kill()
+                _current_proc.wait()
+            except Exception:
+                pass
+            _current_proc = None
+
+
+def is_playing():
+    with _proc_lock:
+        return _current_proc is not None
 
 
 def _speak_fish(text, reference_id, api_key, device):
@@ -122,7 +162,7 @@ def _speak_edge(text, voice, device):
 
         async def _run():
             communicate = edge_tts.Communicate(text, voice)
-            await asyncio.wait_for(communicate.save(tmp), timeout=15)
+            await asyncio.wait_for(communicate.save(tmp), timeout=60)
 
         asyncio.run(_run())
         _play_audio(tmp, device)
@@ -163,16 +203,17 @@ def _speak_pyttsx3(text, voice):
 
 
 def speak(text, provider, voice_config, api_key=None, device=None):
-    for prov in _provider_order(provider):
-        if prov == TTS_PROVIDER_FISH:
-            if _speak_fish(text, voice_config.get("fish_audio", ""), api_key, device):
-                return True
-        elif prov == TTS_PROVIDER_EDGE:
-            if _speak_edge(text, voice_config.get("edge_tts", ""), device):
-                return True
-        elif prov == TTS_PROVIDER_PYTTS:
-            if _speak_pyttsx3(text, voice_config.get("pyttsx3", "")):
-                return True
+    with _tts_lock:
+        for prov in _provider_order(provider):
+            if prov == TTS_PROVIDER_FISH:
+                if _speak_fish(text, voice_config.get("fish_audio", ""), api_key, device):
+                    return True
+            elif prov == TTS_PROVIDER_EDGE:
+                if _speak_edge(text, voice_config.get("edge_tts", ""), device):
+                    return True
+            elif prov == TTS_PROVIDER_PYTTS:
+                if _speak_pyttsx3(text, voice_config.get("pyttsx3", "")):
+                    return True
     return False
 
 

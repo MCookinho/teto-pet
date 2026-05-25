@@ -63,34 +63,34 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
     if provider == config.PROVIDER_AUTO:
         reply = _ask_groq(msg, history, image_base64)
         if reply:
-            log("Groq → %s", reply[:80])
+            log("Groq → %s", reply)
             return reply
         reply = _ask_gemini(msg, history, image_base64)
         if reply:
             if not reply.startswith("TOOL:"):
-                log("Gemini → %s", reply[:80])
+                log("Gemini → %s", reply)
             return reply
         reply = _ask_hf(msg, history)
         if reply:
-            log("HuggingFace → %s", reply[:80])
+            log("HuggingFace → %s", reply)
             return reply
         f = model.phrases.get_fallback(msg, history)
-        log("Frases prontas → %s", f[:80])
+        log("Frases prontas → %s", f)
         return f
 
     if provider == config.PROVIDER_OLLAMA:
         reply = _ask_ollama(msg, history)
         if reply:
-            log("Ollama → %s", reply[:80])
+            log("Ollama → %s", reply)
             return reply
         f = model.phrases.get_fallback(msg, history)
-        log("Frases prontas → %s", f[:80])
+        log("Frases prontas → %s", f)
         return f
 
     if provider == config.PROVIDER_HF:
         reply = _ask_hf(msg, history)
         if reply:
-            log("HuggingFace → %s", reply[:80])
+            log("HuggingFace → %s", reply)
             return reply
         key = config.load().get("hf_token", "")
         if not key:
@@ -101,7 +101,7 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
         reply = _ask_gemini(msg, history, image_base64)
         if reply:
             if not reply.startswith("TOOL:"):
-                log("Gemini → %s", reply[:80])
+                log("Gemini → %s", reply)
             return reply
         key = config.load().get("gemini_key", "")
         if not key:
@@ -111,7 +111,7 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
     if provider == config.PROVIDER_GROQ:
         reply = _ask_groq(msg, history, image_base64)
         if reply:
-            log("Groq → %s", reply[:80])
+            log("Groq → %s", reply)
             return reply
         key = config.load().get("groq_key", "")
         if not key:
@@ -119,7 +119,7 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
         return "Groq não respondeu. Pode ser cota esgotada ou chave inválida."
 
     f = model.phrases.get_fallback(msg, history)
-    log("Frases prontas → %s", f[:80])
+    log("Frases prontas → %s", f)
     return f
 
 

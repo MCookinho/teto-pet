@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 
 import requests
 
@@ -28,7 +29,6 @@ from desktop_pet.chat import ChatWindow
 from desktop_pet.ai import ollama_ensure_running, ollama_stop
 from desktop_pet.tools import screenshot as _screenshot_fn, listen as _listen_fn, listen_mic, list_mic_sources
 from desktop_pet import tts as tts_mod
-from desktop_pet import libras
 
 
 CHAR_SCALE = 5
@@ -60,6 +60,7 @@ class TetoPet(Gtk.Window):
         self.current_speech = None
         self.talking_timer = None
         self._last_click_time = 0
+        self._last_tts_time = 0
         self._task_timers = []
         self._task_busy = {"screen": False, "audio": False}
         self._alarm_timer_id = None
@@ -310,10 +311,6 @@ class TetoPet(Gtk.Window):
         self.cfg["accessibility_speech_enabled"] = item.get_active()
         config.save(self.cfg)
         self._start_all_timers()
-
-    def _toggle_libras(self, item):
-        self.cfg["libras_enabled"] = item.get_active()
-        config.save(self.cfg)
 
     def _change_speech_mode(self, item, mode):
         if not item.get_active():
@@ -736,15 +733,35 @@ class TetoPet(Gtk.Window):
 
     # ─── Balão de fala ────────────────────────────────
 
-    def show_speech(self, text, duration=3):
-        libras_signs = None
-        if self.cfg.get("libras_enabled", False) and self.cfg.get("language") == "pt":
-            translated = libras.translate(text)
-            display = translated if translated != text else text
-            libras_signs = display.split()
-        else:
-            display = text
-        self.speech_queue.append((display, duration, libras_signs))
+    def _has_emoji(self, text):
+        import unicodedata
+        for ch in text:
+            if unicodedata.category(ch) == "So":
+                return True
+        return False
+
+    def show_speech(self, text, duration=0, from_chat=False):
+        if duration <= 0:
+            words = len(text.split())
+            duration = max(4, min(words * 0.5, 25))
+
+        behavior = self.cfg.get("speech_behavior", "interrupt")
+        busy = self.talking_timer is not None or self.current_speech is not None
+        if behavior == "interrupt" and busy:
+            if from_chat:
+                if self.talking_timer is not None:
+                    GLib.source_remove(self.talking_timer)
+                    self.talking_timer = None
+                tts_mod.stop_current_audio()
+                self.speech_queue.clear()
+                self.current_speech = text
+                self.character.set_talking(True)
+                self.da.queue_draw()
+                self.talking_timer = GLib.timeout_add_seconds(duration, self._clear_speech)
+                self._speak_text(text)
+            return
+
+        self.speech_queue.append((text, duration))
         if self.talking_timer is None:
             self._show_next_speech()
         self._speak_text(text)
@@ -767,14 +784,12 @@ class TetoPet(Gtk.Window):
         if not self.speech_queue:
             self.talking_timer = None
             self.current_speech = None
-            self.current_libras_signs = None
             self.character.set_talking(False)
             self.da.queue_draw()
             return
 
-        text, duration, libras_signs = self.speech_queue.pop(0)
+        text, duration = self.speech_queue.pop(0)
         self.current_speech = text
-        self.current_libras_signs = libras_signs
         self.character.set_talking(True)
         self.da.queue_draw()
 
@@ -783,8 +798,10 @@ class TetoPet(Gtk.Window):
         )
 
     def _clear_speech(self):
+        if tts_mod.is_playing():
+            self.talking_timer = GLib.timeout_add_seconds(2, self._clear_speech)
+            return False
         self.current_speech = None
-        self.current_libras_signs = None
         self.character.set_talking(False)
         self.da.queue_draw()
         GLib.idle_add(self._show_next_speech)
@@ -825,8 +842,6 @@ class TetoPet(Gtk.Window):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
 
         if self.cfg.get("wallpaper_enabled", False) and self._bg_surface is not None:
-            log("BG: desenhando fundo %dx%d na janela %dx%d",
-                self._bg_surface.get_width(), self._bg_surface.get_height(), w, h)
             bw = self._bg_surface.get_width()
             bhi = self._bg_surface.get_height()
             cr.save()
@@ -869,13 +884,6 @@ class TetoPet(Gtk.Window):
         bh = logical.height + BUBBLE_PAD * 2 + 6
         by = CHAR_Y
 
-        card_h = 26
-        card_gap = 4
-        pad = 8
-        has_cards = getattr(self, 'current_libras_signs', None) and len(self.current_libras_signs) > 0
-        if has_cards:
-            bh += card_h + card_gap + 4
-
         cr.set_source_rgba(1, 1, 1, 0.92)
         r = 8
         cr.move_to(bx + r, by)
@@ -901,88 +909,7 @@ class TetoPet(Gtk.Window):
         cr.move_to(bx + BUBBLE_PAD, by + BUBBLE_PAD + 2)
         PangoCairo.show_layout(cr, layout)
 
-        if has_cards:
-            self._draw_libras_cards(cr, bx, bw, by, bh, card_h, pad)
-
         cr.restore()
-
-    def _draw_libras_cards(self, cr, bx, bw, by, bh, card_h, pad):
-        signs = self.current_libras_signs
-        card_palette = [
-            (0.87, 0.38, 0.38),  (0.35, 0.70, 0.88),
-            (0.47, 0.78, 0.42),  (0.95, 0.62, 0.22),
-            (0.61, 0.42, 0.82),  (0.91, 0.76, 0.26),
-            (0.23, 0.65, 0.66),  (0.84, 0.49, 0.68),
-        ]
-
-        fd_card = Pango.FontDescription(f"{model.FONT_NAME} 10")
-        layouts = []
-        total_w = 0
-        gap = 4
-
-        for s in signs:
-            lay = PangoCairo.create_layout(cr)
-            lay.set_text(s, -1)
-            lay.set_font_description(fd_card)
-            _, ext = lay.get_pixel_extents()
-            w = ext.width + pad * 2
-            layouts.append((lay, w, ext.width))
-            total_w += w + gap
-        total_w -= gap
-
-        avail_w = bw - BUBBLE_PAD * 2
-        card_y = by + bh - card_h - 4
-
-        if total_w > avail_w:
-            scale = (avail_w - gap * (len(signs) - 1)) / (total_w - gap * (len(signs) - 1))
-            scale = max(scale, 0.5)
-        else:
-            scale = 1.0
-
-        remapped = []
-        for s in signs:
-            lay = PangoCairo.create_layout(cr)
-            lay.set_text(s, -1)
-            fd_scaled = Pango.FontDescription(f"{model.FONT_NAME} {max(8, int(10 * scale))}")
-            lay.set_font_description(fd_scaled)
-            _, ext = lay.get_pixel_extents()
-            w = ext.width + max(int(pad * scale), 4)
-            remapped.append((lay, w, ext.width))
-
-        total_w = sum(w for _, w, _ in remapped) + gap * (len(remapped) - 1)
-        if total_w > avail_w:
-            real_scale = (avail_w - gap * (len(remapped) - 1)) / (total_w - gap * (len(remapped) - 1))
-            remapped2 = []
-            for s in signs:
-                lay = PangoCairo.create_layout(cr)
-                lay.set_text(s, -1)
-                fs = max(7, int(10 * scale * real_scale))
-                lay.set_font_description(Pango.FontDescription(f"{model.FONT_NAME} {fs}"))
-                _, ext = lay.get_pixel_extents()
-                w = ext.width + max(int(pad * scale * real_scale), 4)
-                remapped2.append((lay, w, ext.width))
-            remapped = remapped2
-            total_w = sum(w for _, w, _ in remapped) + gap * (len(remapped) - 1)
-
-        card_x = bx + (bw - total_w) / 2
-        for i, (lay, cw, _) in enumerate(remapped):
-            clr = card_palette[i % len(card_palette)]
-            cr.set_source_rgba(*clr, 0.85)
-            r2 = 6
-            cr.move_to(card_x + r2, card_y)
-            cr.arc(card_x + cw - r2, card_y + r2, r2, -math.pi/2, 0)
-            cr.arc(card_x + cw - r2, card_y + card_h - r2, r2, 0, math.pi/2)
-            cr.arc(card_x + r2, card_y + card_h - r2, r2, math.pi/2, math.pi)
-            cr.arc(card_x + r2, card_y + r2, r2, math.pi, 3*math.pi/2)
-            cr.close_path()
-            cr.fill()
-
-            cr.set_source_rgba(1, 1, 1, 0.95)
-            _, ext = lay.get_pixel_extents()
-            cr.move_to(card_x + (cw - ext.width) / 2, card_y + (card_h - ext.height) / 2)
-            PangoCairo.show_layout(cr, lay)
-
-            card_x += cw + gap
 
     # ─── Eventos do mouse ─────────────────────────────
 
@@ -1107,6 +1034,23 @@ class TetoPet(Gtk.Window):
             wp_item.set_label(f"{self._('menu_wallpaper')} (sem background.jpg)")
         wp_item.connect("toggled", self._toggle_wallpaper)
         appear_menu.append(wp_item)
+
+        speech_menu = Gtk.Menu()
+        speech_sub = Gtk.MenuItem.new_with_label(self._("menu_speech_behavior"))
+        speech_sub.set_submenu(speech_menu)
+        current_behavior = self.cfg.get("speech_behavior", "interrupt")
+        group_speech = []
+        for key, label in [
+            ("interrupt", self._("menu_speech_interrupt")),
+            ("wait", self._("menu_speech_wait")),
+        ]:
+            item = Gtk.RadioMenuItem.new_with_label(group_speech, label)
+            if key == current_behavior:
+                item.set_active(True)
+            item.connect("activate", self._change_speech_behavior, key)
+            speech_menu.append(item)
+            group_speech = [item]
+        appear_menu.append(speech_sub)
 
         bubble_menu = Gtk.Menu()
         bubble_sub = Gtk.MenuItem.new_with_label(self._("menu_bubble_side"))
@@ -1286,16 +1230,6 @@ class TetoPet(Gtk.Window):
 
         acc_menu.append(speech_sub)
 
-        acc_menu.append(Gtk.SeparatorMenuItem())
-
-        libras_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_libras"))
-        libras_toggle.set_active(self.cfg.get("libras_enabled", False))
-        libras_toggle.connect("toggled", self._toggle_libras)
-        if self.cfg.get("language") != "pt":
-            libras_toggle.set_sensitive(False)
-            libras_toggle.set_label(f"{self._('menu_libras')} (PT only)")
-        acc_menu.append(libras_toggle)
-
         cfg_menu.append(acc_sub)
 
         cfg_menu.append(Gtk.SeparatorMenuItem())
@@ -1333,6 +1267,10 @@ class TetoPet(Gtk.Window):
         tts_device_item = Gtk.MenuItem.new_with_label(self._("menu_tts_device"))
         tts_device_item.connect("activate", self._setup_tts_device)
         audio_cfg_menu.append(tts_device_item)
+
+        tts_volume_item = Gtk.MenuItem.new_with_label(self._("menu_tts_volume"))
+        tts_volume_item.connect("activate", self._setup_tts_volume)
+        audio_cfg_menu.append(tts_volume_item)
 
         fish_setup_item = Gtk.MenuItem.new_with_label(self._("menu_configure_fish") + " (pago)")
         fish_setup_item.connect("activate", self._setup_fish_audio)
@@ -1525,12 +1463,17 @@ class TetoPet(Gtk.Window):
         if not self._alarm_ringing:
             if mood:
                 self.character.set_mood(mood)
-        self.show_speech(self._strip_tool(text))
+        self.show_speech(self._strip_tool(text), from_chat=True)
         self._alarm_stop_from_chat(_win, text, mood)
 
     def _speak_text(self, text):
         if not self.cfg.get("tts_enabled", False):
             return
+        if self._has_emoji(text):
+            stripped = re.sub(r'[^\w\s,.!?;:áéíóúâêîôûãõçàèìòùäëïöüñ]', '', text).strip()
+            if not stripped:
+                return
+            text = stripped
         voice_config = dict(getattr(model, "TTS_VOICE", {}))
         if not voice_config:
             return
@@ -1540,6 +1483,7 @@ class TetoPet(Gtk.Window):
         provider = self.cfg.get("tts_provider", "auto")
         api_key = self.cfg.get("fish_audio_key", "") or None
         device = self.cfg.get("tts_device", "") or None
+        self._last_tts_time = time.time()
         threading.Thread(
             target=tts_mod.speak,
             args=(text, provider, voice_config, api_key, device),
@@ -1567,14 +1511,24 @@ class TetoPet(Gtk.Window):
         self.set_keep_above(item.get_active())
         config.save(self.cfg)
 
+    def _change_speech_behavior(self, item, key):
+        if not item.get_active():
+            return
+        self.cfg["speech_behavior"] = key
+        config.save(self.cfg)
+
     def _toggle_wallpaper(self, item):
         self.cfg["wallpaper_enabled"] = item.get_active()
         config.save(self.cfg)
         if item.get_active() and self._bg_surface is not None:
+            self.set_resizable(True)
             self._apply_wallpaper()
         else:
+            self.unfullscreen()
+            self.unmaximize()
             self.set_default_size(WIN_W, WIN_H)
             self.resize(WIN_W, WIN_H)
+            self.set_resizable(False)
             self.move(self.cfg.get("window_x", 100), self.cfg.get("window_y", 100))
         self.da.queue_draw()
 
@@ -1672,6 +1626,33 @@ class TetoPet(Gtk.Window):
                 device_id = store[active_iter][0]
                 self.cfg["tts_device"] = device_id
                 config.save(self.cfg)
+        dialog.destroy()
+
+    def _setup_tts_volume(self, _item=None):
+        current = self.cfg.get("tts_volume", 100)
+        dialog = Gtk.Dialog(
+            title=self._("tts_volume_title"),
+            transient_for=self, flags=0,
+        )
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
+        dialog.set_default_size(350, 140)
+        area = dialog.get_content_area()
+        area.set_margin_start(12); area.set_margin_end(12)
+        area.set_margin_top(12); area.set_margin_bottom(12)
+        lbl = Gtk.Label(label=self._("tts_volume_label"))
+        lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
+
+        adj = Gtk.Adjustment(value=current, lower=0, upper=100, step_increment=1, page_increment=10)
+        scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adj)
+        scale.set_digits(0)
+        scale.set_value_pos(Gtk.PositionType.RIGHT)
+        scale.set_hexpand(True)
+        area.pack_start(scale, False, False, 4)
+
+        area.show_all()
+        if dialog.run() == Gtk.ResponseType.OK:
+            self.cfg["tts_volume"] = int(adj.get_value())
+            config.save(self.cfg)
         dialog.destroy()
 
     def _setup_fish_audio(self, _item=None):
@@ -1773,7 +1754,9 @@ class TetoPet(Gtk.Window):
             text = ai.transcribe(wav)
             if text and re.search(r'[a-zA-Záéíóúâêîôûãõçàèìòùäëïöüñ]', text):
                 text = text.strip()
-                # Ignora texto repetido (alucinação do Whisper com ruído)
+                if time.time() - self._last_tts_time < 1.5:
+                    log("STT contínuo: ignorado (eco TTS): %s", text)
+                    return
                 if text == getattr(self, '_last_stt_text', ''):
                     log("STT contínuo: ignorado (repetido): %s", text)
                     return
@@ -2112,8 +2095,6 @@ c.close()
         if not item.get_active():
             return
         self.cfg["language"] = lang_code
-        if lang_code != "pt":
-            self.cfg["libras_enabled"] = False
         config.save(self.cfg)
         self.show_speech("OK! ^_^")
         GLib.timeout_add(1500, self._restart)
