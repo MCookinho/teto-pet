@@ -52,7 +52,7 @@ desktop_pet/models/my_pet/
     └── ...
 ```
 
-See the [template model](desktop_pet/models/custom_model/) for a complete example with comments.
+See the [template model](docs/custom_model/) for a complete example with comments.
 
 ## License
 
