@@ -228,8 +228,7 @@ def _ask_hf(message, history):
         return None
 
     models = [
-        "google/gemma-2-2b-it",
-        "Qwen/Qwen2.5-1.5B-Instruct",
+        "katanemo/Arch-Router-1.5B",
     ]
 
     msgs = _build_messages(history, message)
