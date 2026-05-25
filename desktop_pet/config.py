@@ -37,6 +37,7 @@ DEFAULT_CONFIG = {
     "language": "pt",
     "gemini_key": "",
     "groq_key": "",
+    "hf_token": "",
     "bubble_side": BUBBLE_AUTO,
     "active_model": "kasane_teto",
     "ollama_model": "",

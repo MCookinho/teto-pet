@@ -92,6 +92,10 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
         if reply:
             log("HuggingFace → %s", reply[:80])
             return reply
+        hf_token = config.load().get("hf_token", "")
+        if not hf_token:
+            return "Hmm, você selecionou HuggingFace mas não configurou o token! 🛡️\nVá no menu em Configurações > Inteligência > Configurar HuggingFace... pra pegar um token grátis em huggingface.co/settings/tokens"
+        return "HuggingFace não respondeu. Pode ser cota esgotada ou token inválido. Tenta outro token em Configurar HuggingFace."
         f = model.phrases.get_fallback(msg, history)
         log("Frases prontas → %s", f[:80])
         return f
@@ -236,22 +240,26 @@ def _ollama_chat(model, messages):
 
 
 def _ask_hf(message, history):
-    if not _resolve("api-inference.huggingface.co"):
+    hf_token = config.load().get("hf_token", "")
+    if not hf_token:
         return None
 
     models = [
-        ("HuggingFaceH4/zephyr-7b-beta", "zephyr"),
-        ("microsoft/DialoGPT-medium", "default"),
+        "microsoft/DialoGPT-medium",
+        "microsoft/DialoGPT-small",
     ]
 
-    for model_id, fmt in models:
-        prompt = _build_prompt(fmt, message, history)
+    for model_id in models:
+        prompt = _build_prompt("default", message, history)
         try:
             resp = requests.post(
-                f"https://api-inference.huggingface.co/models/{model_id}",
-                json={"inputs": prompt, "parameters": _params(fmt)},
-                timeout=10,
-                headers={"User-Agent": "mate-helper/1.0"},
+                f"https://router.huggingface.co/hf-inference/models/{model_id}",
+                json={"inputs": prompt, "parameters": _params("default")},
+                timeout=15,
+                headers={
+                    "Authorization": f"Bearer {hf_token}",
+                    "User-Agent": "mate-helper/1.0",
+                },
             )
         except requests.RequestException as e:
             log("HF %s error: %s", model_id, e)
@@ -260,7 +268,11 @@ def _ask_hf(message, history):
         if resp.status_code == 503:
             log("HF %s loading (503)", model_id)
             continue
+        if resp.status_code == 401:
+            log("HF token inválido (401)")
+            return None
         if resp.status_code != 200:
+            log("HF %s error %s: %s", model_id, resp.status_code, resp.text[:100])
             continue
 
         try:

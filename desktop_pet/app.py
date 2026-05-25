@@ -1241,6 +1241,10 @@ class TetoPet(Gtk.Window):
         groq_setup.connect("activate", lambda _: self._setup_groq())
         ai_menu.append(groq_setup)
 
+        hf_setup = Gtk.MenuItem.new_with_label("Configurar HuggingFace...")
+        hf_setup.connect("activate", lambda _: self._setup_hf())
+        ai_menu.append(hf_setup)
+
         ollama_models = self._list_ollama_models()
         if ollama_models:
             ollama_menu = Gtk.Menu()
@@ -1872,6 +1876,60 @@ c.close()
                 self.show_speech("Groq configurado! Vou usar a IA mais rápida! ^_^")
             else:
                 self.show_speech("Não colou nenhuma chave... Tenta de novo!")
+        dialog.destroy()
+
+    def _setup_hf(self):
+        dialog = Gtk.Dialog(
+            title="Configurar HuggingFace",
+            transient_for=self,
+            flags=0,
+        )
+        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Salvar", Gtk.ResponseType.OK)
+        dialog.set_default_size(400, 220)
+
+        area = dialog.get_content_area()
+        area.set_margin_start(12)
+        area.set_margin_end(12)
+        area.set_margin_top(12)
+        area.set_margin_bottom(12)
+
+        lbl = Gtk.Label()
+        lbl.set_markup(
+            "<b>HuggingFace API Token</b>\n\n"
+            "HuggingFace oferece inferência grátis com token!\n"
+            "Use modelos como DialoGPT para conversar.\n\n"
+            "1. Acesse: https://huggingface.co/settings/tokens\n"
+            "2. Clique em \"New token\"\n"
+            "3. Escolha permissão \"read\" e copie o token\n"
+            "4. Cole abaixo\n\n"
+            "Gratuito, sem cartão de crédito!"
+        )
+        lbl.set_line_wrap(True)
+        lbl.set_xalign(0)
+        area.pack_start(lbl, False, False, 6)
+
+        entry = Gtk.Entry()
+        entry.set_placeholder_text("Cole seu token HuggingFace aqui...")
+        entry.set_text(self.cfg.get("hf_token", ""))
+        entry.set_visibility(False)
+        area.pack_start(entry, False, False, 6)
+
+        link_btn = Gtk.LinkButton.new_with_label(
+            "https://huggingface.co/settings/tokens",
+            "Abrir HuggingFace Tokens",
+        )
+        area.pack_start(link_btn, False, False, 6)
+
+        area.show_all()
+
+        if dialog.run() == Gtk.ResponseType.OK:
+            token = entry.get_text().strip()
+            if token:
+                self.cfg["hf_token"] = token
+                config.save(self.cfg)
+                self.show_speech("HuggingFace configurado! Agora vou usar a IA da comunidade! ^_^")
+            else:
+                self.show_speech("Não colou nenhum token... Tenta de novo!")
         dialog.destroy()
 
     def _list_ollama_models(self):
