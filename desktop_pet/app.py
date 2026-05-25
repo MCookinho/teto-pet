@@ -734,7 +734,7 @@ class TetoPet(Gtk.Window):
 
     def show_speech(self, text, duration=3):
         libras_signs = None
-        if self.cfg.get("libras_enabled", False):
+        if self.cfg.get("libras_enabled", False) and self.cfg.get("language") == "pt":
             translated = libras.translate(text)
             display = translated if translated != text else text
             libras_signs = display.split()
@@ -1264,6 +1264,9 @@ class TetoPet(Gtk.Window):
         libras_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_libras"))
         libras_toggle.set_active(self.cfg.get("libras_enabled", False))
         libras_toggle.connect("toggled", self._toggle_libras)
+        if self.cfg.get("language") != "pt":
+            libras_toggle.set_sensitive(False)
+            libras_toggle.set_label(f"{self._('menu_libras')} (PT only)")
         acc_menu.append(libras_toggle)
 
         cfg_menu.append(acc_sub)
@@ -2032,6 +2035,8 @@ c.close()
         if not item.get_active():
             return
         self.cfg["language"] = lang_code
+        if lang_code != "pt":
+            self.cfg["libras_enabled"] = False
         config.save(self.cfg)
         self.show_speech("OK! ^_^")
         GLib.timeout_add(1500, self._restart)
