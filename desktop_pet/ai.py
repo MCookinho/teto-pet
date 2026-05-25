@@ -1,12 +1,18 @@
 import sys
+import os
 import threading
 import socket
+import subprocess
+import time
 
 import requests
 from gi.repository import GLib
 
-from teto_pet import phrases, config
-from teto_pet.models import model
+from desktop_pet import config
+from desktop_pet.models import model
+from desktop_pet.log import log
+
+# ── System prompts ────────────────────────────────────────
 
 SYSTEM = model.SYSTEM_PROMPT
 
@@ -57,48 +63,44 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
     if provider == config.PROVIDER_AUTO:
         reply = _ask_groq(msg, history, image_base64)
         if reply:
-            print(f"[mate-helper] Groq: {reply}", file=sys.stderr)
+            log("Groq → %s", reply[:80])
             return reply
         reply = _ask_gemini(msg, history, image_base64)
         if reply:
             if not reply.startswith("TOOL:"):
-                print(f"[mate-helper] Gemini: {reply}", file=sys.stderr)
+                log("Gemini → %s", reply[:80])
             return reply
         reply = _ask_hf(msg, history)
         if reply:
-            print(f"[mate-helper] HuggingFace: {reply}", file=sys.stderr)
+            log("HuggingFace → %s", reply[:80])
             return reply
-        reply = _ask_ollama(msg, history)
-        if reply:
-            print(f"[mate-helper] Ollama: {reply}", file=sys.stderr)
-            return reply
-        f = phrases.get_fallback(msg, history)
-        print(f"[mate-helper] Frases: {f}", file=sys.stderr)
+        f = model.phrases.get_fallback(msg, history)
+        log("Frases prontas → %s", f[:80])
         return f
 
     if provider == config.PROVIDER_OLLAMA:
         reply = _ask_ollama(msg, history)
         if reply:
-            print(f"[mate-helper] Ollama: {reply}", file=sys.stderr)
+            log("Ollama → %s", reply[:80])
             return reply
-        f = phrases.get_fallback(msg, history)
-        print(f"[mate-helper] Frases: {f}", file=sys.stderr)
+        f = model.phrases.get_fallback(msg, history)
+        log("Frases prontas → %s", f[:80])
         return f
 
     if provider == config.PROVIDER_HF:
         reply = _ask_hf(msg, history)
         if reply:
-            print(f"[mate-helper] HuggingFace: {reply}", file=sys.stderr)
+            log("HuggingFace → %s", reply[:80])
             return reply
-        f = phrases.get_fallback(msg, history)
-        print(f"[mate-helper] Frases: {f}", file=sys.stderr)
+        f = model.phrases.get_fallback(msg, history)
+        log("Frases prontas → %s", f[:80])
         return f
 
     if provider == "gemini":
         reply = _ask_gemini(msg, history, image_base64)
         if reply:
             if not reply.startswith("TOOL:"):
-                print(f"[mate-helper] Gemini: {reply}", file=sys.stderr)
+                log("Gemini → %s", reply[:80])
             return reply
         key = config.load().get("gemini_key", "")
         if not key:
@@ -108,15 +110,15 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
     if provider == config.PROVIDER_GROQ:
         reply = _ask_groq(msg, history, image_base64)
         if reply:
-            print(f"[mate-helper] Groq: {reply}", file=sys.stderr)
+            log("Groq → %s", reply[:80])
             return reply
         key = config.load().get("groq_key", "")
         if not key:
             return "Hmm, você selecionou Groq mas não configurou a chave! 🛡️\nVá no menu em **Configurar Groq...** pra pegar uma chave grátis!"
         return "Groq não respondeu. Pode ser cota esgotada ou chave inválida."
 
-    f = phrases.get_fallback(msg, history)
-    print(f"[mate-helper] Frases: {f}", file=sys.stderr)
+    f = model.phrases.get_fallback(msg, history)
+    log("Frases prontas → %s", f[:80])
     return f
 
 
@@ -212,7 +214,7 @@ def _ollama_chat(model, messages):
                 text = text.strip()
                 return text
     except requests.RequestException as e:
-        print(f"[mate-helper] Ollama error: {e}", file=sys.stderr)
+        log("Ollama error: %s", e)
     return None
 
 
@@ -238,11 +240,11 @@ def _ask_hf(message, history):
                 headers={"User-Agent": "mate-helper/1.0"},
             )
         except requests.RequestException as e:
-            print(f"[mate-helper] HF {model_id} error: {e}", file=sys.stderr)
+            log("HF %s error: %s", model_id, e)
             continue
 
         if resp.status_code == 503:
-            print(f"[mate-helper] HF {model_id} loading (503)", file=sys.stderr)
+            log("HF %s loading (503)", model_id)
             continue
         if resp.status_code != 200:
             continue
@@ -278,7 +280,7 @@ def _ask_gemini(message, history, image_base64=None):
         return None
 
     if not _resolve("generativelanguage.googleapis.com"):
-        print("[mate-helper] Gemini domain unreachable", file=sys.stderr)
+        log("Gemini domain unreachable")
         return None
 
     contents = []
@@ -333,7 +335,7 @@ def _ask_gemini(message, history, image_base64=None):
             else:
                 continue
         except requests.RequestException as e:
-            print(f"[mate-helper] Gemini request failed: {e}", file=sys.stderr)
+            log("Gemini request failed: %s", e)
             continue
 
     return None
@@ -392,23 +394,54 @@ def _ask_groq(message, history, image_base64=None):
             text = resp.json()["choices"][0]["message"]["content"].strip()
             return text
         elif resp.status_code == 429:
-            print("[mate-helper] Groq: cota esgotada (429)", file=sys.stderr)
+            log("Groq: cota esgotada (429)")
             return None
         elif resp.status_code == 401:
-            print("[mate-helper] Groq: chave inválida (401)", file=sys.stderr)
+            log("Groq: chave inválida (401)")
             return None
         else:
-            print(f"[mate-helper] Groq error {resp.status_code}: {resp.text[:200]}", file=sys.stderr)
+            log("Groq error %s: %s", resp.status_code, resp.text[:200])
             return None
     except requests.RequestException as e:
-        print(f"[mate-helper] Groq request failed: {e}", file=sys.stderr)
+        log("Groq request failed: %s", e)
+        return None
+
+
+def transcribe(audio_path):
+    key = config.load().get("groq_key", "")
+    if not key:
+        return None
+    if not audio_path or not os.path.exists(audio_path):
+        return None
+    try:
+        with open(audio_path, "rb") as f:
+            files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {key}"},
+                files=files,
+                data={"model": "whisper-large-v3-turbo", "language": "pt"},
+                timeout=30,
+            )
+        os.unlink(audio_path)
+        if resp.status_code == 200:
+            text = resp.json().get("text", "").strip()
+            return text if text else None
+        elif resp.status_code == 429:
+            log("Groq Whisper: cota esgotada")
+            return None
+        else:
+            log("Groq Whisper error %s: %s", resp.status_code, resp.text[:200])
+            return None
+    except requests.RequestException as e:
+        log("Groq Whisper request failed: %s", e)
+        return None
+    except OSError as e:
+        log("Erro ao ler áudio: %s", e)
         return None
 
 
 # ─── Ollama auto-management ────────────────────────────────
-
-import subprocess
-import time
 
 _ollama_started_by_us = False
 
@@ -424,10 +457,10 @@ def ollama_ensure_running():
         pass
 
     if not subprocess.run(["which", "ollama"], capture_output=True).returncode == 0:
-        print("[mate-helper] Ollama not installed", file=sys.stderr)
+        log("Ollama not installed")
         return False
 
-    print("[mate-helper] Starting Ollama...", file=sys.stderr)
+    log("Starting Ollama...")
     try:
         subprocess.Popen(
             ["ollama", "serve"],
@@ -440,12 +473,12 @@ def ollama_ensure_running():
             try:
                 resp = requests.get("http://localhost:11434/api/tags", timeout=2)
                 if resp.status_code == 200:
-                    print("[mate-helper] Ollama started!", file=sys.stderr)
+                    log("Ollama started!")
                     return True
             except requests.RequestException:
                 pass
     except Exception as e:
-        print(f"[mate-helper] Failed to start Ollama: {e}", file=sys.stderr)
+        log("Failed to start Ollama: %s", e)
 
     return False
 
@@ -454,7 +487,7 @@ def ollama_stop():
     global _ollama_started_by_us
     if not _ollama_started_by_us:
         return
-    print("[mate-helper] Stopping Ollama...", file=sys.stderr)
+    log("Stopping Ollama...")
     subprocess.run(["pkill", "ollama"], capture_output=True)
     _ollama_started_by_us = False
 

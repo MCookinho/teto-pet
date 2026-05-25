@@ -2,7 +2,7 @@
 
 Um pet virtual de desktop com **Kasane Teto** que conversa, interage com seu sistema e comenta sobre sua tela.
 
-![Teto](teto_pet/models/kasane_teto/sprites/Happy.png)
+![Teto](desktop_pet/models/kasane_teto/sprites/Happy.png)
 
 ## ✨ Funcionalidades
 
@@ -48,7 +48,7 @@ pip install requests
 Ou diretamente:
 
 ```bash
-python3 teto_pet/main.py
+python3 desktop_pet/main.py
 ```
 
 ## 🧠 Configuração
@@ -85,7 +85,7 @@ Ambos cabem em ~8GB VRAM e oferecem ótimo custo-benefício.
 ```
 mate-helper/
 ├── run.sh
-├── teto_pet/
+├── desktop_pet/
 │   ├── main.py
 │   ├── app.py          # Janela principal e menu
 │   ├── chat.py         # Chat e execução de ferramentas

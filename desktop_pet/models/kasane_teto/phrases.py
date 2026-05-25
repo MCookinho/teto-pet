@@ -1,15 +1,15 @@
 import random
-from teto_pet.models import model
+from .model import PET_NAME, PET_SHORT_NAME
 
 FALLBACKS = {
     "greeting": [
         "Oii! Que bom te ver! ^_^",
         "Aaa, oi! Tô aqui!",
-        f"E aí, beleza? {model.PET_SHORT_NAME} online!",
+        f"E aí, beleza? {PET_SHORT_NAME} online!",
         "Opa! Que bom que você veio me visitar!",
         "Hey hey! Tava esperando você!",
         "Oi oi! Como cê tá?",
-        f"Fala aí! {model.PET_SHORT_NAME} pronta pro que der e vier!",
+        f"Fala aí! {PET_SHORT_NAME} pronta pro que der e vier!",
         "Oieee! Saudades!",
     ],
     "how_are_you": [
@@ -51,10 +51,10 @@ FALLBACKS = {
         "Tchauzinho! Cuida bem de você!",
     ],
     "name": [
-        f"Sou {model.PET_NAME}! A vocaloid mais linda do universo!",
-        f"{model.PET_SHORT_NAME}-chan! Prazer em te conhecer!",
-        f"{model.PET_NAME}, mas pode me chamar de {model.PET_SHORT_NAME}!",
-        f"Eu sou {model.PET_SHORT_NAME}! Cantora, vocaloid e seu pet virtual favorito!",
+        f"Sou {PET_NAME}! A vocaloid mais linda do universo!",
+        f"{PET_SHORT_NAME}-chan! Prazer em te conhecer!",
+        f"{PET_NAME}, mas pode me chamar de {PET_SHORT_NAME}!",
+        f"Eu sou {PET_SHORT_NAME}! Cantora, vocaloid e seu pet virtual favorito!",
     ],
     "what_can_you_do": [
         "Eu converso com você! Posso ler arquivos, ver sua tela, e te fazer companhia!",
@@ -75,7 +75,7 @@ FALLBACKS = {
         "Qual o animal mais antigo? A zebra, porque é preta e branca!",
     ],
     "sing": [
-        f"La la la~ ♪ Você sabia que a {model.PET_SHORT_NAME} canta? Meu programa é UTAU!",
+        f"La la la~ ♪ Você sabia que a {PET_SHORT_NAME} canta? Meu programa é UTAU!",
         "♪ Cantando eu vou~ feliz a cantar~ ♪",
         "Quer ouvir uma música? Me pede!",
     ],
@@ -114,7 +114,7 @@ FALLBACKS = {
     ],
     "music": [
         "Ah, eu amo música! Meu sonho é ser uma cantora famosa!",
-        f"Já ouviu alguma música minha? Tem no YouTube! Procura {model.PET_NAME}~",
+        f"Já ouviu alguma música minha? Tem no YouTube! Procura {PET_NAME}~",
         "Música é vida! Qual seu estilo favorito?",
     ],
     "unknown": [
@@ -129,64 +129,132 @@ FALLBACKS = {
 }
 
 CATEGORY_KEYWORDS = [
-    # greetings
     (["oi", "ola", "olá", "opa", "hey", "eai", "e aí", "fala", "oie",
       "salve", "ioiô", "ioio", "alo", "alô", "fala ai", "iae", "i a e"], "greeting"),
-    # how are you
     (["como vai", "como voce esta", "como você está", "tudo bem", "beleza",
       "blz", "suave", "tranquilo", "tranquila", "como esta", "como cê ta",
       "to bem", "tô bem", "tudo em cima"], "how_are_you"),
-    # thanks
     (["obrigado", "obrigada", "brigado", "valeu", "thanks", "brigada",
       "mt obrigado", "muito obrigado", "agradecido", "obg"], "thanks"),
-    # sarcastic thanks
     (["valeuzão", "brigadão", "obrigadão", "vlw"], "thanks_sarcastic"),
-    # bye
     (["tchau", "bye", "ate logo", "até logo", "flw", "falou", "xau",
       "ate mais", "até mais", "nos vemos", "ate", "até", "inté"], "bye"),
-    # name
     (["seu nome", "quem e voce", "quem é você", "como se chama",
       "como chama", "quem e vc", "seu nome é", "vc e quem"], "name"),
-    # what can you do
     (["o que voce faz", "o que sabe", "que pode fazer", "o que faz",
       "o que vc faz", "o que você sabe", "pra que serve"], "what_can_you_do"),
-    # mood bad
     (["triste", "chateado", "chateada", "depre", "mal", "ruim", "tristeza",
       "depressão", "depressao", "down", "bad", "frustrado", "frustrada",
       "cansado", "cansada", "sozinho", "sozinha", "aborrecido"],
      "return_bad"),
-    # mood good
     (["feliz", "alegre", "bem", "otimo", "ótimo", "top", "felizao",
       "felizon", "alegrão", "alegrão", "maravilha", "maravilhoso",
       "incrivel", "incrível", "que bom", "que ótimo"], "return_good"),
-    # affection
     (["amo", "adoro", "te amo", "te adoro", "amor", "voce e demais",
       "vc e demais", "te quero", "gosto de vc", "gosto de ti",
       "amo vc", "amo você", "linda", "lindo", "fofa", "fofo"], "affection"),
-    # jokes
     (["conta uma piada", "piada", "faz rir", "me faz rir", "engraçado",
       "humor"], "jokes"),
-    # sing
     (["canta", "cante", "música", "musica", "cantar", "cantoria",
       "uma canção", "canção"], "sing"),
-    # food
     (["comer", "comida", "fome", "lanche", "pizza", "hamburguer",
       "hambúrguer", "restaurante", "gostoso", "guloso"], "food"),
-    # fun
     (["tedio", "tédio", "entediado", "entediada", "chato", "sem oq fazer",
       "sem o que fazer", "vazio", "tédio total"], "fun"),
-    # curious
     (["me conta", "fala sobre", "explica", "o que acha", "o que vc acha",
       "me explica", "curioso", "curiosa"], "curious"),
-    # sleepy
     (["sono", "dormir", "cama", "boa noite", "noite", "cansado",
       "exausto"], "sleepy"),
-    # learning
     (["aprender", "estudar", "programação", "programacao", "codigo",
       "código", "python", "linux", "pc", "computador"], "learn"),
-    # music
     (["musica", "música", "cantora", "vocaloid", "utau", "cantar",
       "ouvir musica", "estilo musical", "banda"], "music"),
+]
+
+GREETING = [
+    "Oii! Que bom te ver! ^_^",
+    "Aaa, oi! Tô aqui!",
+    "Eba! Você voltou! ^_^",
+    "Oi oi! Tava com saudade! ^_^",
+]
+
+ALARM_STOPPED = [
+    "Alarme desligado! ^_^",
+    "Ufa, parei! ^_^",
+    "Tá bom, desliguei!",
+    "Alarme cancelado! 😅",
+]
+
+ALARM_ADDED = [
+    "Alarme adicionado! 💃",
+    "Beleza, mais um alarme! 🎵",
+    "Hora marcada! Vou lembrar você! ^_^",
+]
+
+ALARM_DELETED = [
+    "Alarme removido! ^_^",
+    "Pronto, deletei esse alarme!",
+    "Feito! Alarme apagado!",
+]
+
+OLLAMA_STARTED = [
+    "Ollama ligado! Tô pronta pra conversar! ^_^",
+    "Ollama online! Pode perguntar qualquer coisa!",
+    "IA local pronta! Vamos nessa!",
+]
+
+OLLAMA_NOT_FOUND = [
+    "Hmm, não achei o Ollama... Vou usar frases prontas mesmo!",
+    "Ollama não tá rodando... Vou no improviso! ^_^",
+]
+
+CMD_SUCCESS = [
+    "Comando executado! ^_^",
+    "Feito! Comando rodou!",
+    "Prontinho! ^_^",
+]
+
+SCREENSHOT_TAKEN = [
+    "Print tirado! Vou dar uma olhada... ^_^",
+    "Foto da tela tirada! Deixa eu ver...",
+]
+
+LISTENING = [
+    "Escutando! Vou te dizer o que ouvi... ^_^",
+    "Prestando atenção no som... hmm!",
+]
+
+FILE_SAVED = [
+    "Arquivo salvo! Feito! ^_^",
+    "Salvo! Pode conferir!",
+]
+
+TOOL_LOOP = [
+    "Hmm, deu um loop nas ferramentas! >_<",
+    "Ai ai, entrei num loop!",
+]
+
+SCREENSHOT_FAILED = [
+    "Não consegui capturar a tela...",
+    "Falha no print... :(",
+]
+
+AUDIO_FAILED = [
+    "Não consegui capturar o áudio...",
+    "Falha no áudio... >_<",
+]
+
+TOOL_FAILED = [
+    "Hmm, não consegui usar essa ferramenta...",
+    "Erro na ferramenta... tenta de novo!",
+]
+
+ALARM_PHRASES = [
+    "🎵 Acorda! Hora do alarme! 🎵 ^_^",
+    "Acordaaa! O alarme tocou! 🎶💃",
+    "Hora de acordar! Vamo dançar! 🕺",
+    "Seu alarme! Levanta que tem música! 🎵",
+    "Tem coisa tocando! Acorda! 😆",
 ]
 
 THINKING_PREFIXES = [
@@ -213,6 +281,13 @@ CONTINUATIONS = [
 _context = {"last_category": None, "history": []}
 
 
+def pick(category, default=""):
+    lst = globals().get(category)
+    if lst and isinstance(lst, list):
+        return random.choice(lst)
+    return default
+
+
 def update_context(history):
     _context["history"] = history[-4:] if history else []
 
@@ -225,7 +300,6 @@ def get_fallback(message, history=None):
 
     msg = message.lower().strip()
 
-    # check if user just responded with a short affirmative
     if msg in {"sim", "ss", "s", "siim", "é", "e"}:
         if _context["last_category"] in ("return_good", "return_bad"):
             return random.choice(FALLBACKS["curious"])
@@ -234,13 +308,11 @@ def get_fallback(message, history=None):
     if msg in {"nao", "não", "n", "nah", "nem", "nope"}:
         return random.choice(FALLBACKS["curious"])
 
-    # check keywords
     for keywords, category in CATEGORY_KEYWORDS:
         if any(kw in msg for kw in keywords):
             _context["last_category"] = category
             return random.choice(FALLBACKS[category])
 
-    # if there's a history, use continuation phrases
     if _context["history"]:
         _context["last_category"] = "continuation"
         prefix = random.choice(THINKING_PREFIXES)

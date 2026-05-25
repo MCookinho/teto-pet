@@ -18,11 +18,11 @@ class _ModelProxy:
     _cached_name = None
 
     def _load(self):
-        from teto_pet import config
+        from desktop_pet import config
         cfg = config.load()
         name = cfg.get("active_model", "kasane_teto")
         if name != self._cached_name or self._cache is None:
-            mod = importlib.import_module(f"teto_pet.models.{name}.model")
+            mod = importlib.import_module(f"desktop_pet.models.{name}.model")
             self._cache = mod
             self._cached_name = name
         return self._cache

@@ -26,6 +26,7 @@ TOOL_KEYS = [
     "tool_write_file",
     "tool_open_url",
     "tool_screenshot",
+    "tool_listen",
 ]
 
 DEFAULT_CONFIG = {
@@ -42,7 +43,29 @@ DEFAULT_CONFIG = {
     "user_name": "",
     "user_bio": "",
     "accessibility_enabled": False,
+    "accessibility_mode": "aleatorio",
     "accessibility_interval": 30,
+    "accessibility_min_interval": 15,
+    "accessibility_max_interval": 60,
+    "accessibility_audio_enabled": False,
+    "accessibility_audio_mode": "aleatorio",
+    "accessibility_audio_interval": 10,
+    "accessibility_audio_min_interval": 5,
+    "accessibility_audio_max_interval": 30,
+    "accessibility_speech_enabled": False,
+    "speech_mode": "aleatorio",
+    "speech_min_interval": 30,
+    "speech_max_interval": 120,
+    "speech_exact_interval": 60,
+    "mic_stt_enabled": False,
+    "mic_stt_device": "",
+    "mic_stt_mode": "toggle",
+    "stt_shortcut": "V",
+    "window_scale": 5,
+    "accessibility_use_model_defaults": False,
+    "alarms": [
+        {"hour": 8, "minute": 0, "enabled": False, "name": ""},
+    ],
 }
 for k in TOOL_KEYS:
     DEFAULT_CONFIG[k] = False

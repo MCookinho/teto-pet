@@ -1,34 +1,40 @@
 import os
-import re
-import sys
 import json
 import html
+import re
+import threading
 import subprocess
 
 from gi.repository import Gtk, Pango, GObject, GLib
 
-from teto_pet import ai, config
-from teto_pet.character import Mood
-from teto_pet.tools import TOOLS, TOOL_KEYWORDS, screenshot as _screenshot_fn
+from desktop_pet import ai, config
+from desktop_pet.log import log
+from desktop_pet.character import Mood
+from desktop_pet.models import model
+from desktop_pet.tools import TOOLS, TOOL_KEYWORDS, screenshot as _screenshot_fn, listen as _listen_fn, listen_mic, list_mic_sources
 
-HISTORY_FILE = os.path.expanduser("~/.config/teto-pet/chat_history.json")
+HISTORY_DIR = os.path.expanduser("~/.config/teto-pet/history")
 MAX_HISTORY = 50
+
+
+def _history_path():
+    return os.path.join(HISTORY_DIR, f"{model.MODEL_ID}.json")
 
 
 def _save_history(history):
     try:
-        os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(HISTORY_DIR, exist_ok=True)
+        with open(_history_path(), "w", encoding="utf-8") as f:
             json.dump(history[-MAX_HISTORY:], f, ensure_ascii=False)
-    except OSError:
-        pass
+    except Exception as e:
+        log("erro salvando histórico: %s", e)
 
 
 def _load_history():
     try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+        with open(_history_path(), "r", encoding="utf-8") as f:
             return json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except (FileNotFoundError, json.JSONDecodeError):
         return []
 
 
@@ -86,15 +92,19 @@ def _tool_display_words(result):
     if result.startswith("run_command"):
         cmd = result[len("run_command: "):].strip()
         if cmd == "(ok, exit code 0)":
-            return "Comando executado! ^_^"
+            return model.phrases.pick("CMD_SUCCESS", "Comando executado! ^_^")
         return f"Comando executado:\n{cmd[:TOOL_BUBBLE_SIZE]}"
     if result.startswith("open_url"):
         url = result[len("open_url("):].rsplit(")", 1)[0] if "open_url(" in result else result
         return f"URL aberta! {url[:80]}"
     if result.startswith("screenshot"):
-        return "Print tirado! Vou dar uma olhada... ^_^"
+        return model.phrases.pick("SCREENSHOT_TAKEN", "Print tirado! Vou dar uma olhada... ^_^")
+    if result.startswith("listen_erro"):
+        return result[len("listen_erro:"):]
+    if result.startswith("listen"):
+        return model.phrases.pick("LISTENING", "Escutando! Vou te dizer o que ouvi... ^_^")
     if result.startswith("write_file"):
-        return "Arquivo salvo! Feito! ^_^"
+        return model.phrases.pick("FILE_SAVED", "Arquivo salvo! Feito! ^_^")
     if result.startswith("list_files"):
         content = result.split(": ", 1)[1] if ": " in result else result
         path = result.split("(")[1].split(")")[0] if "(" in result else "~"
@@ -109,17 +119,18 @@ def _tool_display_words(result):
         if len(content) > TOOL_BUBBLE_SIZE:
             content += "\n... (truncado)"
         return f"Conteúdo de {path}:\n{content}"
-    return f"Feito! {result[:100]}"
+    return f"{model.phrases.pick('CMD_SUCCESS', 'Feito!')} {result[:100]}"
 
 
 class ChatWindow(Gtk.Window):
 
     __gsignals__ = {
         "teto-speech": (GObject.SignalFlags.RUN_FIRST, None, (str, object)),
+        "alarm-command": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
     }
 
     def __init__(self, parent=None):
-        super().__init__(title="Conversar com Teto", transient_for=parent)
+        super().__init__(title=f"Conversar com {model.PET_SHORT_NAME}", transient_for=parent)
         self.set_default_size(360, 420)
         self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
 
@@ -152,14 +163,22 @@ class ChatWindow(Gtk.Window):
         send_btn.connect("clicked", self._on_send)
         entry_box.pack_start(send_btn, False, False, 0)
 
+        self.mic_btn = Gtk.Button.new_from_icon_name(
+            "audio-input-microphone", Gtk.IconSize.BUTTON
+        )
+        self.mic_btn.set_tooltip_text("Falar (STT)")
+        self.mic_btn.connect("button-press-event", self._on_mic_press)
+        self.mic_btn.connect("button-release-event", self._on_mic_release)
+        entry_box.pack_start(self.mic_btn, False, False, 0)
+
         self.history = _load_history()
         self.waiting = False
 
         if not self.history:
-            self._add_bubble("Teto", "Oii! Que bom te ver! ^_^", "teto")
+            self._add_bubble(model.PET_SHORT_NAME, model.phrases.pick("GREETING", "Oii! Que bom te ver! ^_^"), "teto")
         else:
             for h in self.history[-20:]:
-                who = "Teto" if h["role"] == "assistant" else "Você"
+                who = model.PET_SHORT_NAME if h["role"] == "assistant" else "Você"
                 self._add_bubble(who, h["content"], "teto" if h["role"] == "assistant" else "user")
 
     def _add_bubble(self, who, text, cls):
@@ -288,6 +307,19 @@ class ChatWindow(Gtk.Window):
             lower,
         ):
             return self._exec("screenshot", {})
+
+        # ── listen ─────────────────────────────────────────
+        if re.search(
+            r'(?:escuta|ouve|ouvir|o\s+que\s+[eé]\s+que\s+ta\s+tocando|'
+            r'que\s+musica|que\s+música|'
+            r'escuta\s+o\s+que\s+[eé]\s+que\s+ta\s+tocando|'
+            r'escuta\s+o\s+que\s+ta\s+rolando|'
+            r'o\s+que\s+ta\s+tocando|'
+            r'escuta\s+o\s+som|escuta\s+o\s+audio|escuta\s+o\s+áudio|'
+            r'ta\s+tocando\s+o\s+que)',
+            lower,
+        ):
+            return self._exec("listen", {})
 
         # ── list files ────────────────────────────────────
         # "o que tem [em/na/no/nas/nos] X" (NOT arquivo)
@@ -488,13 +520,15 @@ class ChatWindow(Gtk.Window):
             return f"erro: argumentos inválidos pra {tool_name}: {e}"
         if tool_name == "screenshot":
             return f"screenshot:{result}"
+        if tool_name == "listen":
+            if result.startswith("Erro:") or result.startswith("Não"):
+                return f"listen_erro:{result}"
+            return f"listen:{result}"
         if tool_name == "run_command":
-            print(f"[mate-helper] Comando: {args.get('command', '?')[:60]}", file=sys.stderr)
-            return f"run_command: {result[:500]}"
-        if tool_name == "write_file":
-            print(f"[mate-helper] Arquivo: {args.get('path', '?')}", file=sys.stderr)
-            return f"write_file: {result[:200]}"
-        print(f"[mate-helper] {tool_name}: {result[:60]}", file=sys.stderr)
+            log("Comando: %s", args.get('command', '?')[:60])
+        if 'path' in args:
+            log("Arquivo: %s", args.get('path', '?'))
+        log("%s → %s", tool_name, result[:60])
         display_arg = args.get('path') or args.get('url') or '~'
         return f"{tool_name}({display_arg}): {result[:1000]}"
 
@@ -504,21 +538,26 @@ class ChatWindow(Gtk.Window):
         self.history = []
         for row in list(self.msg_list.get_children()):
             self.msg_list.remove(row)
-        self._add_bubble("Teto", "Oii! Que bom te ver! ^_^", "teto")
+        self._add_bubble(model.PET_SHORT_NAME, model.phrases.pick("GREETING", "Oii! Que bom te ver! ^_^"), "teto")
         try:
-            os.remove(HISTORY_FILE)
+            os.remove(_history_path())
         except OSError:
             pass
 
+    def add_message(self, text):
+        self._add_bubble(model.PET_SHORT_NAME, text, "teto")
+        self.history.append({"role": "assistant", "content": text})
+        _save_history(self.history)
+
     def _call_ai_then_tool(self, text, depth=0, image_base64=None, silent=False):
         if depth > 3:
-            return "Hmm, deu um loop nas ferramentas! >_<"
+            return model.phrases.pick("TOOL_LOOP", "Hmm, deu um loop nas ferramentas! >_<")
 
         if not silent:
             self.waiting = True
             self.entry.set_sensitive(False)
             GLib.timeout_add_seconds(15, self._unlock_entry)
-        thinking_row = self._add_bubble("Teto", "…", "teto") if not silent else None
+        thinking_row = self._add_bubble(model.PET_SHORT_NAME, "…", "teto") if not silent else None
         user_mood = _detect_mood(text)
 
         def on_reply(reply):
@@ -551,8 +590,33 @@ class ChatWindow(Gtk.Window):
                             depth + 1, image_base64=img, silent=True,
                         )
                         return
-                    self._add_bubble("Teto", img or "Não consegui capturar a tela...", "teto")
-                    self.emit("teto-speech", img or "Não consegui capturar a tela...", Mood.TRISTE)
+                    fail_msg = model.phrases.pick("SCREENSHOT_FAILED", "Não consegui capturar a tela...")
+                    self._add_bubble(model.PET_SHORT_NAME, img or fail_msg, "teto")
+                    self.emit("teto-speech", img or fail_msg, Mood.TRISTE)
+                    return
+
+                if tool_name == "listen":
+                    audio_path = _listen_fn()
+                    if audio_path and os.path.exists(audio_path):
+                        transcribed = ai.transcribe(audio_path)
+                        if transcribed:
+                            self._call_ai_then_tool(
+                                f"{text}\n\n[Áudio capturado do desktop]\n"
+                                f"Transcrição: {transcribed}\n\n"
+                                f"Comente naturalmente sobre o que ouviu na tela "
+                                f"do usuário.",
+                                depth + 1, silent=True,
+                            )
+                        else:
+                            self._call_ai_then_tool(
+                                f"{text}\n\n[Não entendi o áudio do desktop]\n\n"
+                                f"Comente que não deu pra entender o som.",
+                                depth + 1, silent=True,
+                            )
+                    else:
+                        fail_msg = model.phrases.pick("AUDIO_FAILED", "Não consegui capturar o áudio...")
+                        self._add_bubble(model.PET_SHORT_NAME, audio_path or fail_msg, "teto")
+                        self.emit("teto-speech", audio_path or fail_msg, Mood.TRISTE)
                     return
 
                 tool_result = self._exec(tool_name, args)
@@ -563,10 +627,10 @@ class ChatWindow(Gtk.Window):
                         depth + 1, silent=True,
                     )
                 else:
-                    bubble_text = "Hmm, não consegui usar essa ferramenta..."
+                    bubble_text = model.phrases.pick("TOOL_FAILED", "Hmm, não consegui usar essa ferramenta...")
                     self.history.append({"role": "assistant", "content": bubble_text})
                     _save_history(self.history)
-                    self._add_bubble("Teto", bubble_text, "teto")
+                    self._add_bubble(model.PET_SHORT_NAME, bubble_text, "teto")
                     self.emit("teto-speech", bubble_text, Mood.TRISTE)
                 return
 
@@ -578,13 +642,66 @@ class ChatWindow(Gtk.Window):
                 if reply_mood == Mood.NORMAL and user_mood != Mood.NORMAL:
                     reply_mood = user_mood
 
-                self._add_bubble("Teto", reply, "teto")
+                self._add_bubble(model.PET_SHORT_NAME, reply, "teto")
                 self.emit("teto-speech", reply, reply_mood)
 
         if image_base64:
             ai.ask(text, self.history, callback=on_reply, image_base64=image_base64)
         else:
             ai.ask(text, self.history, callback=on_reply)
+
+    def _on_mic_press(self, btn, event):
+        cfg = config.load()
+        if not cfg.get("mic_stt_enabled", False):
+            self._add_bubble(model.PET_SHORT_NAME, "STT por microfone está desativado. Ative em Configurações > Áudio.", "teto")
+            return True
+        if not cfg.get("groq_key", ""):
+            self._add_bubble(model.PET_SHORT_NAME, "Configure a chave do Groq em Configurações > Inteligência > Configurar Groq... para usar STT.", "teto")
+            return True
+
+        mode = cfg.get("mic_stt_mode", "toggle")
+        self._stt_stop_event = threading.Event()
+        device = cfg.get("mic_stt_device", "") or None
+
+        if mode == "hold":
+            duration = 30
+            self.mic_btn.set_tooltip_text("Gravando... solte para parar")
+            self.entry.set_placeholder_text("Gravando... (solte para parar)")
+        else:
+            duration = 5
+            self.mic_btn.set_tooltip_text("Gravando...")
+            self.entry.set_placeholder_text("Gravando...")
+
+        def record():
+            log("STT: gravando do dispositivo %s", device or "(auto)")
+            wav = listen_mic(device=device, duration=duration, stop_event=self._stt_stop_event)
+            if isinstance(wav, str) and wav.startswith("Erro"):
+                log("STT: erro na captura: %s", wav)
+                GLib.idle_add(self._add_bubble, model.PET_SHORT_NAME, wav, "teto")
+            elif wav:
+                log("STT: áudio capturado, transcrevendo...")
+                text = ai.transcribe(wav)
+                if text and re.search(r'[a-zA-Záéíóúâêîôûãõçàèìòùäëïöüñ]', text):
+                    log("STT: transcrição: %s", text)
+                    GLib.idle_add(self.entry.set_text, text)
+                    GLib.idle_add(self._on_send)
+                else:
+                    log("STT: transcrição falhou%s", f" ({text})" if text else "")
+                    GLib.idle_add(self._add_bubble, model.PET_SHORT_NAME,
+                                  "Não entendi o que você falou... Tenta de novo!", "teto")
+            GLib.idle_add(self.mic_btn.set_tooltip_text, "Falar (STT)")
+            GLib.idle_add(self.entry.set_placeholder_text, "Digite sua mensagem...")
+
+        threading.Thread(target=record, daemon=True).start()
+        return True
+
+    def _on_mic_release(self, btn, event):
+        cfg = config.load()
+        if cfg.get("mic_stt_mode", "") == "hold":
+            log("STT: botão solto, parando gravação")
+            if hasattr(self, '_stt_stop_event'):
+                self._stt_stop_event.set()
+        return True
 
     def _safe_entry(self):
         self.waiting = False
@@ -593,28 +710,32 @@ class ChatWindow(Gtk.Window):
     def _unlock_entry(self):
         if self.waiting:
             self._safe_entry()
-            print("[mate-helper] ⚠ entrada destravada por segurança (30s)", file=sys.stderr)
+            log("⚠ entrada destravada por segurança (30s)")
         return False
 
-    def _on_send(self, _widget=None):
-        text = self.entry.get_text().strip()
+    def _process_user_text(self, text):
+        text = text.strip()
         if not text or self.waiting:
             return
-
-        self.entry.set_text("")
         self._add_bubble("Você", text, "user")
         self.history.append({"role": "user", "content": text})
-        print(f"[mate-helper] Você: {text}", file=sys.stderr)
+        log("Você: %s", text)
+
+        alarm_words = {"para", "pare", "parar", "desliga", "desligar", "cala", "calar", "stop", "chega"}
+        if any(w in text.lower() for w in alarm_words):
+            self.emit("alarm-command", text)
 
         kw_result = self._run_tool(text)
         if kw_result:
             cfg = config.load()
             words = _tool_display_words(kw_result)
-            self._add_bubble("Teto", words, "teto")
+            is_data_tool = kw_result.startswith("list_files") or kw_result.startswith("read_file")
+            self._add_bubble(model.PET_SHORT_NAME, words, "teto")
             self.history.append({"role": "assistant", "content": words})
             _save_history(self.history)
-            self.emit("teto-speech", words, Mood.NORMAL)
-            print(f"[mate-helper] Teto: {words}", file=sys.stderr)
+            if not is_data_tool:
+                self.emit("teto-speech", words, Mood.NORMAL)
+                log("%s: %s", model.PET_SHORT_NAME, words)
 
             if cfg.get("ai_provider", config.PROVIDER_AUTO) != config.PROVIDER_PHRASES:
                 if kw_result.startswith("screenshot:"):
@@ -625,6 +746,35 @@ class ChatWindow(Gtk.Window):
                         "icones e qualquer coisa interessante na tela.",
                         silent=True, image_base64=img_b64,
                     )
+                elif kw_result.startswith("listen_erro:"):
+                    self._call_ai_then_tool(
+                        f"{text}\n\n[Erro ao capturar áudio: {kw_result[len('listen_erro:'):]}]",
+                        silent=True,
+                    )
+                elif kw_result.startswith("listen:"):
+                    audio_path = kw_result[len("listen:"):]
+                    if audio_path and os.path.exists(audio_path):
+                        transcribed = ai.transcribe(audio_path)
+                        if transcribed:
+                            self._call_ai_then_tool(
+                                f"{text}\n\n[Áudio capturado do desktop]\n"
+                                f"Transcrição: {transcribed}\n\n"
+                                f"Comente naturalmente sobre o que ouviu na tela "
+                                f"do usuário.",
+                                silent=True,
+                            )
+                        else:
+                            self._call_ai_then_tool(
+                                f"{text}\n\n[Não entendi o áudio do desktop]\n\n"
+                                f"Comente que não deu pra entender o som.",
+                                silent=True,
+                            )
+                    else:
+                        self._call_ai_then_tool(
+                            f"{text}\n\n[Não consegui capturar áudio]\n\n"
+                            f"Comente que não conseguiu capturar o som.",
+                            silent=True,
+                        )
                 else:
                     self._call_ai_then_tool(
                         f"{text}\n\n[Resultado de ferramenta: {kw_result}]\n\n"
@@ -634,6 +784,13 @@ class ChatWindow(Gtk.Window):
             return
 
         self._call_ai_then_tool(text)
+
+    def _on_send(self, _widget=None):
+        text = self.entry.get_text().strip()
+        if not text or self.waiting:
+            return
+        self.entry.set_text("")
+        self._process_user_text(text)
 
 
 def _resolve_ci(path):

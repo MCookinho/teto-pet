@@ -3,6 +3,7 @@ import io
 import re
 import shlex
 import base64
+import array
 import subprocess
 import tempfile
 
@@ -24,6 +25,9 @@ DANGEROUS_PATTERNS = [
     r'\bshred\b',
 ]
 DANGEROUS_RE = re.compile('|'.join(DANGEROUS_PATTERNS))
+
+
+# ─── Funções-ferramenta ─────────────────────────────────
 
 
 def read_file(path):
@@ -49,6 +53,7 @@ MAX_LIST_ITEMS = 60
 
 
 def list_files(path="~"):
+    """Lista arquivos/pastas em um diretório (máx 60 itens)."""
     expanded = os.path.expanduser(path)
     if not os.path.exists(expanded):
         return f"Erro: pasta não encontrada: {path}"
@@ -189,6 +194,138 @@ def open_url(url):
         return f"Erro ao abrir URL: {e}"
 
 
+def list_mic_sources():
+    try:
+        result = subprocess.run(
+            ["pactl", "list", "sources", "short"],
+            capture_output=True, text=True, timeout=5,
+        )
+        mics = []
+        for line in result.stdout.strip().split("\n"):
+            if "monitor" not in line and line.strip():
+                parts = line.split()
+                if len(parts) >= 2:
+                    mics.append(parts[1])
+        return mics
+    except Exception:
+        return []
+
+
+def listen_mic(device=None, duration=5, stop_event=None):
+    raw = None
+    try:
+        if not device:
+            mics = list_mic_sources()
+            if not mics:
+                return "Erro: nenhum microfone encontrado"
+            device = mics[0]
+        raw = tempfile.NamedTemporaryFile(suffix=".raw", delete=False)
+        raw.close()
+        fh = open(raw.name, "wb")
+        proc = subprocess.Popen(
+            ["parec", "--device", device, "--format=s16le",
+             "--rate=16000", "--channels=1", "--raw"],
+            stdout=fh, stderr=subprocess.DEVNULL,
+        )
+        if stop_event:
+            stop_event.wait(timeout=duration)
+            proc.kill()
+        else:
+            try:
+                proc.wait(timeout=duration)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        proc.wait()
+        fh.close()
+        if not os.path.exists(raw.name) or os.path.getsize(raw.name) < 100:
+            os.unlink(raw.name)
+            return "Erro: áudio muito curto"
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.close()
+        ret = subprocess.run(
+            ["ffmpeg", "-y", "-f", "s16le", "-ar", "16000", "-ac", "1",
+             "-i", raw.name, tmp.name],
+            capture_output=True, timeout=10,
+        )
+        os.unlink(raw.name)
+        if ret.returncode != 0 or os.path.getsize(tmp.name) < 100:
+            os.unlink(tmp.name)
+            return "Erro: falha ao converter áudio para WAV"
+        return tmp.name
+    except (FileNotFoundError, OSError) as e:
+        if raw and os.path.exists(raw.name):
+            os.unlink(raw.name)
+        return f"Erro ao capturar áudio: {e}"
+
+
+def listen(duration=8):
+    raw = None
+    try:
+        result = subprocess.run(
+            ["pactl", "list", "sources", "short"],
+            capture_output=True, text=True, timeout=5,
+        )
+        monitors = []
+        for line in result.stdout.strip().split("\n"):
+            if "monitor" in line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    monitors.append((parts[1], "SUSPENDED" not in line))
+        if not monitors:
+            return "Erro: nenhuma fonte de áudio monitor encontrada"
+
+        active = [m for m in monitors if m[1]]
+        source = active[0][0] if active else monitors[0][0]
+
+        raw = tempfile.NamedTemporaryFile(suffix=".raw", delete=False)
+        raw.close()
+        try:
+            subprocess.run(
+                ["timeout", str(duration + 1),
+                 "parec", "--device", source, "--format=s16le",
+                 "--rate=16000", "--channels=1", "--raw"],
+                stdout=open(raw.name, "wb"),
+                stderr=subprocess.DEVNULL,
+                timeout=duration + 5,
+            )
+        except subprocess.TimeoutExpired:
+            pass
+
+        if not os.path.exists(raw.name) or os.path.getsize(raw.name) < 100:
+            os.unlink(raw.name)
+            return "Erro: áudio capturado muito curto"
+
+        # Detecta silêncio — se o RMS for muito baixo, não vale enviar pro Whisper
+        try:
+            data = open(raw.name, "rb").read()
+            samples = array.array('h')
+            samples.frombytes(data[:200000])  # até ~100k samples (6s de 16kHz)
+            if samples:
+                rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
+                if rms < 100:
+                    os.unlink(raw.name)
+                    return "Erro: áudio muito baixo (silêncio)"
+        except Exception:
+            pass
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp.close()
+        ret = subprocess.run(
+            ["ffmpeg", "-y", "-f", "s16le", "-ar", "16000", "-ac", "1",
+             "-i", raw.name, tmp.name],
+            capture_output=True, timeout=10,
+        )
+        os.unlink(raw.name)
+        if ret.returncode != 0 or os.path.getsize(tmp.name) < 100:
+            os.unlink(tmp.name)
+            return "Erro: falha ao converter áudio para WAV"
+        return tmp.name
+    except (FileNotFoundError, OSError) as e:
+        if raw and os.path.exists(raw.name):
+            os.unlink(raw.name)
+        return f"Erro ao capturar áudio: {e}"
+
+
 TOOLS = {
     "read_file": {
         "name": "read_file",
@@ -226,6 +363,12 @@ TOOLS = {
         "execute": open_url,
         "parameters": {"url": "URL para abrir"},
     },
+    "listen": {
+        "name": "listen",
+        "description": "Escuta os sons do desktop (música, chamadas, sons em geral) por alguns segundos e retorna o arquivo de áudio",
+        "execute": listen,
+        "parameters": {},
+    },
 }
 
 TOOL_KEYWORDS = {
@@ -251,5 +394,9 @@ TOOL_KEYWORDS = {
     "open_url": [
         "abre", "abrir", "navegador", "browser", "site", "url",
         "youtube", "google", "link", "pagina", "página",
+    ],
+    "listen": [
+        "escuta", "ouve", "ouvir", "tocando", "musica", "música",
+        "som", "áudio", "audio", "chamada", "call",
     ],
 }
