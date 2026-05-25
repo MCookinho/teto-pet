@@ -1177,7 +1177,7 @@ class TetoPet(Gtk.Window):
         group_tts = []
         for tts_key, tts_label in [
             ("auto", self._("tts_provider_auto")),
-            ("fish_audio", self._("tts_provider_fish")),
+            ("fish_audio", self._("tts_provider_fish") + " (pago)"),
             ("edge_tts", self._("tts_provider_edge")),
             ("pyttsx3", self._("tts_provider_pyttsx")),
         ]:
@@ -1193,7 +1193,7 @@ class TetoPet(Gtk.Window):
         tts_device_item.connect("activate", self._setup_tts_device)
         audio_cfg_menu.append(tts_device_item)
 
-        fish_setup_item = Gtk.MenuItem.new_with_label(self._("menu_configure_fish"))
+        fish_setup_item = Gtk.MenuItem.new_with_label(self._("menu_configure_fish") + " (pago)")
         fish_setup_item.connect("activate", self._setup_fish_audio)
         audio_cfg_menu.append(fish_setup_item)
 
