@@ -103,7 +103,7 @@ class TetoPet(Gtk.Window):
         )
 
         self._load_background()
-        GLib.idle_add(self._apply_wallpaper)
+        GLib.idle_add(self._apply_wallpaper_if_enabled)
         self.da.connect("button-press-event", self._on_button_press)
         self.da.connect("button-release-event", self._on_button_release)
         self.da.connect("motion-notify-event", self._on_motion)
@@ -824,7 +824,7 @@ class TetoPet(Gtk.Window):
     def _on_draw(self, widget, cr):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
 
-        if self._bg_surface is not None:
+        if self.cfg.get("wallpaper_enabled", False) and self._bg_surface is not None:
             log("BG: desenhando fundo %dx%d na janela %dx%d",
                 self._bg_surface.get_width(), self._bg_surface.get_height(), w, h)
             bw = self._bg_surface.get_width()
@@ -1099,6 +1099,14 @@ class TetoPet(Gtk.Window):
         top_item.set_active(self.cfg.get("always_on_top", True))
         top_item.connect("toggled", self._toggle_ontop)
         appear_menu.append(top_item)
+
+        wp_item = Gtk.CheckMenuItem.new_with_label(self._("menu_wallpaper"))
+        wp_item.set_active(self.cfg.get("wallpaper_enabled", False))
+        if self._bg_surface is None:
+            wp_item.set_sensitive(False)
+            wp_item.set_label(f"{self._('menu_wallpaper')} (sem background.jpg)")
+        wp_item.connect("toggled", self._toggle_wallpaper)
+        appear_menu.append(wp_item)
 
         bubble_menu = Gtk.Menu()
         bubble_sub = Gtk.MenuItem.new_with_label(self._("menu_bubble_side"))
@@ -1559,18 +1567,34 @@ class TetoPet(Gtk.Window):
         self.set_keep_above(item.get_active())
         config.save(self.cfg)
 
+    def _toggle_wallpaper(self, item):
+        self.cfg["wallpaper_enabled"] = item.get_active()
+        config.save(self.cfg)
+        if item.get_active() and self._bg_surface is not None:
+            self._apply_wallpaper()
+        else:
+            self.set_default_size(WIN_W, WIN_H)
+            self.resize(WIN_W, WIN_H)
+            self.move(self.cfg.get("window_x", 100), self.cfg.get("window_y", 100))
+        self.da.queue_draw()
+
+    def _apply_wallpaper_if_enabled(self):
+        if self.cfg.get("wallpaper_enabled", False):
+            self._apply_wallpaper()
+
     def _apply_wallpaper(self):
-        if self._bg_surface is not None:
-            display = Gdk.Display.get_default()
-            monitor = display.get_primary_monitor()
-            if monitor is None:
-                monitor = display.get_monitor(0)
-            geo = monitor.get_geometry()
-            self.set_default_size(geo.width, geo.height)
-            self.resize(geo.width, geo.height)
-            self.move(geo.x, geo.y)
-            log("BG: wallpaper mode ativado %dx%d", geo.width, geo.height)
-            self.da.queue_draw()
+        if self._bg_surface is None:
+            return
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor()
+        if monitor is None:
+            monitor = display.get_monitor(0)
+        geo = monitor.get_geometry()
+        self.set_default_size(geo.width, geo.height)
+        self.resize(geo.width, geo.height)
+        self.move(geo.x, geo.y)
+        log("BG: wallpaper mode ativado %dx%d", geo.width, geo.height)
+        self.da.queue_draw()
 
     def _load_background(self):
         self._bg_surface = None

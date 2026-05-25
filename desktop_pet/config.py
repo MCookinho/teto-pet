@@ -70,6 +70,7 @@ DEFAULT_CONFIG = {
     "mic_stt_mode": "toggle",
     "stt_shortcut": "V",
     "window_scale": 5,
+    "wallpaper_enabled": False,
     "accessibility_use_model_defaults": False,
     "tts_enabled": False,
     "tts_provider": TTS_PROVIDER_AUTO,

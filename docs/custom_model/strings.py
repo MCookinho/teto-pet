@@ -87,6 +87,8 @@ STRINGS = {
         "tts_provider_pyttsx3": "pyttsx3",
         "tts_provider_auto": "Automatico",
         "menu_libras": "Traducao para Libras (escrita)",
+        "menu_always_on_top": "Sempre no topo",
+        "menu_wallpaper": "Modo papel de parede",
         "menu_fullscreen": "Tela cheia",
     },
     "en": {
@@ -145,6 +147,8 @@ STRINGS = {
         "tts_provider_pyttsx3": "pyttsx3",
         "tts_provider_auto": "Auto",
         "menu_libras": "Translate to Libras (written)",
+        "menu_always_on_top": "Always on top",
+        "menu_wallpaper": "Wallpaper mode",
         "menu_fullscreen": "Fullscreen",
     },
 }
