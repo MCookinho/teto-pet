@@ -28,6 +28,7 @@ from desktop_pet.chat import ChatWindow
 from desktop_pet.ai import ollama_ensure_running, ollama_stop
 from desktop_pet.tools import screenshot as _screenshot_fn, listen as _listen_fn, listen_mic, list_mic_sources
 from desktop_pet import tts as tts_mod
+from desktop_pet import libras
 
 
 CHAR_SCALE = 5
@@ -305,6 +306,10 @@ class TetoPet(Gtk.Window):
         self.cfg["accessibility_speech_enabled"] = item.get_active()
         config.save(self.cfg)
         self._start_all_timers()
+
+    def _toggle_libras(self, item):
+        self.cfg["libras_enabled"] = item.get_active()
+        config.save(self.cfg)
 
     def _change_speech_mode(self, item, mode):
         if not item.get_active():
@@ -728,7 +733,12 @@ class TetoPet(Gtk.Window):
     # ─── Balão de fala ────────────────────────────────
 
     def show_speech(self, text, duration=3):
-        self.speech_queue.append((text, duration))
+        if self.cfg.get("libras_enabled", False):
+            translated = libras.translate(text)
+            display = f"[LIBRAS] {translated}" if translated != text else text
+        else:
+            display = text
+        self.speech_queue.append((display, duration))
         if self.talking_timer is None:
             self._show_next_speech()
         self._speak_text(text)
@@ -1155,6 +1165,13 @@ class TetoPet(Gtk.Window):
         speech_menu.append(speech_timer)
 
         acc_menu.append(speech_sub)
+
+        acc_menu.append(Gtk.SeparatorMenuItem())
+
+        libras_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_libras"))
+        libras_toggle.set_active(self.cfg.get("libras_enabled", False))
+        libras_toggle.connect("toggled", self._toggle_libras)
+        acc_menu.append(libras_toggle)
 
         cfg_menu.append(acc_sub)
 

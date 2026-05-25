@@ -159,6 +159,7 @@ STRINGS = {
         "fish_voice_placeholder": "ID da voz (opcional)",
         "fish_configured": "Fish Audio configurado! ^_^",
         "fish_no_key": "Não colou nenhuma chave...",
+        "menu_libras": "Traducao para Libras (escrita)",
     },
     "en": {
         "greeting": "Hii! So good to see you! ^_^",
@@ -320,6 +321,7 @@ STRINGS = {
         "fish_voice_placeholder": "Voice ID (optional)",
         "fish_configured": "Fish Audio configured! ^_^",
         "fish_no_key": "No key pasted...",
+        "menu_libras": "Translate to Libras (written)",
     },
     "jp": {
         "greeting": "やあ！会えて嬉しいよ！ ^_^",
@@ -481,5 +483,6 @@ STRINGS = {
         "fish_voice_placeholder": "音声ID（任意）",
         "fish_configured": "Fish Audio設定完了！^_^",
         "fish_no_key": "キーが貼り付けられていません...",
+        "menu_libras": "Libras",
     },
 }
