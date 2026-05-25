@@ -92,13 +92,10 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
         if reply:
             log("HuggingFace → %s", reply[:80])
             return reply
-        hf_token = config.load().get("hf_token", "")
-        if not hf_token:
+        key = config.load().get("hf_token", "")
+        if not key:
             return "Hmm, você selecionou HuggingFace mas não configurou o token! 🛡️\nVá no menu em Configurações > Inteligência > Configurar HuggingFace... pra pegar um token grátis em huggingface.co/settings/tokens"
-        return "HuggingFace não respondeu. Pode ser cota esgotada ou token inválido. Tenta outro token em Configurar HuggingFace."
-        f = model.phrases.get_fallback(msg, history)
-        log("Frases prontas → %s", f[:80])
-        return f
+        return "HuggingFace não respondeu. Pode ser cota esgotada ou token inválido."
 
     if provider == "gemini":
         reply = _ask_gemini(msg, history, image_base64)
@@ -109,14 +106,7 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
         key = config.load().get("gemini_key", "")
         if not key:
             return "Hmm, você selecionou Gemini mas não configurou a chave! 🛡️\nVá no menu e clique em **Configurar Gemini** pra pegar uma chave grátis!"
-        log("Gemini indisponível, tentando fallback...")
-        reply = _ask_hf(msg, history)
-        if reply:
-            log("HuggingFace (fallback) → %s", reply[:80])
-            return reply
-        f = model.phrases.get_fallback(msg, history)
-        log("Frases prontas (fallback) → %s", f[:80])
-        return f
+        return "Gemini não respondeu. Pode ser cota esgotada ou chave inválida. Tenta outra chave em Configurar Gemini."
 
     if provider == config.PROVIDER_GROQ:
         reply = _ask_groq(msg, history, image_base64)
@@ -126,14 +116,7 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
         key = config.load().get("groq_key", "")
         if not key:
             return "Hmm, você selecionou Groq mas não configurou a chave! 🛡️\nVá no menu em **Configurar Groq...** pra pegar uma chave grátis!"
-        log("Groq indisponível, tentando fallback...")
-        reply = _ask_hf(msg, history)
-        if reply:
-            log("HuggingFace (fallback) → %s", reply[:80])
-            return reply
-        f = model.phrases.get_fallback(msg, history)
-        log("Frases prontas (fallback) → %s", f[:80])
-        return f
+        return "Groq não respondeu. Pode ser cota esgotada ou chave inválida."
 
     f = model.phrases.get_fallback(msg, history)
     log("Frases prontas → %s", f[:80])
