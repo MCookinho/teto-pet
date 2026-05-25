@@ -17,7 +17,7 @@ except ImportError:
 
 import gi
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo, cairo
+from gi.repository import Gtk, Gdk, GdkPixbuf, GLib, Pango, PangoCairo, cairo
 
 from desktop_pet import config, ai
 from desktop_pet.log import log
@@ -1608,13 +1608,8 @@ class TetoPet(Gtk.Window):
                 log("BG: checking %s", path)
                 if os.path.exists(path):
                     try:
-                        from PIL import Image
-                        import io
-                        img = Image.open(path).convert("RGBA")
-                        with io.BytesIO() as buf:
-                            img.save(buf, format="PNG")
-                            buf.seek(0)
-                            self._bg_surface = cairo.ImageSurface.create_from_png(buf)
+                        pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+                        self._bg_surface = Gdk.cairo_surface_create_from_pixbuf(pixbuf, 1, None)
                         log("BG: loaded %s (%dx%d)", path,
                             self._bg_surface.get_width(), self._bg_surface.get_height())
                     except Exception as e:
