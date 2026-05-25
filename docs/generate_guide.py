@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a comprehensive architecture & user guide PDF for Teto-Pet."""
+"""Generate a comprehensive architecture & user guide PDF for Mate Helper."""
 
 from fpdf import FPDF
 import os, textwrap
@@ -56,7 +56,7 @@ class GuidePDF(FPDF):
             return
         self.set_font("DejaVu", "I", 7)
         self._rgb(C_GRAY)
-        self.cell(0, 4, "Teto-Pet  -  Architecture & User Guide", align="L")
+        self.cell(0, 4, "Mate Helper  -  Architecture & User Guide", align="L")
         self.cell(0, 4, f"Page {self.page_no()}", align="R", new_x="LMARGIN", new_y="NEXT")
         self.line(self.l_margin, self.get_y() + 0.5, self.w - self.r_margin, self.get_y() + 0.5)
         self.ln(4)
@@ -70,7 +70,7 @@ class GuidePDF(FPDF):
         self.ln(50)
         self.set_font("DejaVu", "B", 36)
         self._rgb(C_PRIMARY)
-        self.cell(0, 14, "Teto-Pet", align="C", new_x="LMARGIN", new_y="NEXT")
+        self.cell(0, 14, "Mate Helper", align="C", new_x="LMARGIN", new_y="NEXT")
         self.set_font("DejaVu", "", 18)
         self._rgb(C_SECONDARY)
         self.cell(0, 10, "Interactive Desktop Pet with AI", align="C", new_x="LMARGIN", new_y="NEXT")
@@ -238,14 +238,14 @@ def build():
     pdf.chapter_heading("1  Introduction")
 
     pdf.body(
-        "Teto-Pet is a Linux desktop application that brings an animated, AI-powered virtual pet to your screen. "
+        "Mate Helper is a Linux desktop application that brings an animated, AI-powered virtual pet to your screen. "
         "The pet character walks, dances, reacts emotionally, and interacts with you through speech bubbles, "
         "a text chat window, and voice commands. It can converse using multiple AI providers, "
         "execute real computer commands, describe what is happening on your screen, transcribe desktop audio, "
         "set alarms, and speak aloud with synthetic voices."
     )
     pdf.body(
-        "Designed for both utility and companionship, Teto-Pet serves as a friendly desktop assistant "
+        "Designed for both utility and companionship, Mate Helper serves as a friendly desktop assistant "
         "that can help with everyday tasks while providing a charming, animated presence. "
         "It supports multiple character models with different personalities and languages, "
         "and includes accessibility features for users who benefit from screen reading and audio transcription."
@@ -276,7 +276,7 @@ def build():
 
     pdf.section_heading("Intended Audience")
     pdf.body(
-        "This guide is intended for users who want to understand how Teto-Pet works under the hood, "
+        "This guide is intended for users who want to understand how Mate Helper works under the hood, "
         "configure it for their needs, or create custom character models. It provides architectural "
         "descriptions of each subsystem without revealing proprietary source code."
     )
@@ -306,7 +306,7 @@ def build():
 
     pdf.section_heading("First-Time Configuration")
     pdf.body(
-        "On first launch, the application creates a configuration file at ~/.config/teto-pet/config.json "
+        "On first launch, the application creates a configuration file at ~/.config/mate-helper/config.json "
         "with sensible defaults. The pet appears in the center of your screen with a default character "
         "model. From the context menu, you can:"
     )
@@ -331,7 +331,7 @@ def build():
     pdf.chapter_heading("3  System Architecture")
 
     pdf.body(
-        "Teto-Pet follows a modular architecture where each subsystem handles a specific concern. "
+        "Mate Helper follows a modular architecture where each subsystem handles a specific concern. "
         "The main application window orchestrates all components through a timer-based event loop, "
         "signal system, and shared configuration module. The following sections describe each layer "
         "of the architecture."
@@ -367,7 +367,7 @@ def build():
 
     pdf.section_heading("3.3  Configuration Subsystem")
     pdf.body(
-        "All user settings are stored in a single JSON file at ~/.config/teto-pet/config.json. "
+        "All user settings are stored in a single JSON file at ~/.config/mate-helper/config.json. "
         "The configuration module provides load and save functions that merge saved settings with "
         "a comprehensive set of defaults. On load, the system validates provider names and bubble "
         "side settings against allowed values, and applies automatic migrations for older config "
@@ -729,7 +729,7 @@ def build():
     pdf.chapter_heading("7  Accessibility")
 
     pdf.body(
-        "Teto-Pet includes several accessibility features designed to assist users with visual "
+        "Mate Helper includes several accessibility features designed to assist users with visual "
         "or hearing impairments, as well as users who prefer multimodal interaction."
     )
 
@@ -837,7 +837,7 @@ def build():
     pdf.bullet("Message history displayed as bubbles, with user messages on one side and pet responses on the other.")
     pdf.bullet("Text entry field with send button for keyboard input.")
     pdf.bullet("Microphone button for push-to-talk voice input (hold or toggle modes).")
-    pdf.bullet("Conversation history is saved per model to ~/.config/teto-pet/history/ and persists across sessions.")
+    pdf.bullet("Conversation history is saved per model to ~/.config/mate-helper/history/ and persists across sessions.")
     pdf.bullet("Clear history button to reset the conversation.")
     pdf.bullet("Emits speech signals to the main window, so chat responses appear as both text and speech bubbles.")
 
@@ -881,7 +881,7 @@ def build():
 
     pdf.body(
         "This chapter documents all user-configurable settings and their effects. "
-        "Settings are persisted in ~/.config/teto-pet/config.json and can be modified "
+        "Settings are persisted in ~/.config/mate-helper/config.json and can be modified "
         "through the context menu or by directly editing the JSON file."
     )
 
@@ -969,7 +969,7 @@ def build():
     pdf.chapter_heading("10  Custom Model Creation")
 
     pdf.body(
-        "One of Teto-Pet's most powerful features is its extensible character model system. "
+        "One of Mate Helper's most powerful features is its extensible character model system. "
         "Anyone can create a new character by providing sprites, a personality definition, "
         "a phrase library, and UI translations. This chapter provides a complete guide to "
         "creating your own custom character model."
@@ -1098,7 +1098,7 @@ def build():
     )
     pdf.body("1. Copy your model folder to the desktop_pet/models/ directory.")
     pdf.body("2. Ensure your sprites are in the sprites/ subfolder with correct filenames.")
-    pdf.body("3. Launch Teto-Pet and select your model from the context menu (Pet Model -> your model name).")
+    pdf.body("3. Launch Mate Helper and select your model from the context menu (Pet Model -> your model name).")
     pdf.body("4. Test each mood by triggering different interactions (chat normally for happy, insult for sad, etc.).")
     pdf.body("5. Verify the speech bubble renders correctly with your custom font (if configured).")
     pdf.body("6. Test the AI personality by asking questions in the chat window.")
@@ -1146,7 +1146,7 @@ def build():
         "Log messages use the format [HH:MM:SS] message. To capture logs for debugging, "
         "run the application with stderr redirected to a file:"
     )
-    pdf.body("  python3 desktop_pet/main.py 2> teto-pet.log")
+    pdf.body("  python3 desktop_pet/main.py 2> mate-helper.log")
 
     pdf.section_heading("11.3  Network and API Issues")
     pdf.body(
@@ -1165,7 +1165,7 @@ def build():
 
     pdf.section_heading("11.4  Configuration File Recovery")
     pdf.body(
-        "If the configuration file becomes corrupted, delete ~/.config/teto-pet/config.json "
+        "If the configuration file becomes corrupted, delete ~/.config/mate-helper/config.json "
         "and restart the application. A fresh configuration file with defaults will be "
         "created automatically. Note that this will erase all settings, including API keys, "
         "alarms, and profile information."
@@ -1178,7 +1178,7 @@ def build():
     pdf.chapter_heading("Appendix A  Configuration File Reference")
 
     pdf.body(
-        "The configuration file is stored at ~/.config/teto-pet/config.json. "
+        "The configuration file is stored at ~/.config/mate-helper/config.json. "
         "The following table documents all configuration keys and their default values."
     )
 
