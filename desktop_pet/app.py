@@ -731,6 +731,7 @@ class TetoPet(Gtk.Window):
         self.speech_queue.append((text, duration))
         if self.talking_timer is None:
             self._show_next_speech()
+        self._speak_text(text)
 
     def _add_chat_message(self, text):
         text = self._strip_tool(text)
@@ -1374,7 +1375,6 @@ class TetoPet(Gtk.Window):
 
         self.chat_window.connect("teto-speech", self._on_chat_speech)
         self.chat_window.connect("alarm-command", self._alarm_stop_from_chat)
-        self.chat_window.connect("tts-speak", self._on_chat_tts)
         self.chat_window.connect("key-press-event", self._on_key_press)
         self.chat_window.connect("key-release-event", self._on_key_release)
         self.chat_window.entry.connect("key-press-event", self._on_key_press)
@@ -1388,7 +1388,7 @@ class TetoPet(Gtk.Window):
         self.show_speech(self._strip_tool(text))
         self._alarm_stop_from_chat(_win, text, mood)
 
-    def _on_chat_tts(self, _win, text):
+    def _speak_text(self, text):
         if not self.cfg.get("tts_enabled", False):
             return
         voice_config = dict(getattr(model, "TTS_VOICE", {}))
@@ -1613,7 +1613,6 @@ class TetoPet(Gtk.Window):
 
         self.chat_window.connect("teto-speech", self._on_chat_speech)
         self.chat_window.connect("alarm-command", self._alarm_stop_from_chat)
-        self.chat_window.connect("tts-speak", self._on_chat_tts)
         self.chat_window.connect("key-press-event", self._on_key_press)
         self.chat_window.connect("key-release-event", self._on_key_release)
         self.chat_window.entry.connect("key-press-event", self._on_key_press)
