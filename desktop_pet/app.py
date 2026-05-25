@@ -733,12 +733,14 @@ class TetoPet(Gtk.Window):
     # ─── Balão de fala ────────────────────────────────
 
     def show_speech(self, text, duration=3):
+        libras_signs = None
         if self.cfg.get("libras_enabled", False):
             translated = libras.translate(text)
-            display = f"[LIBRAS] {translated}" if translated != text else text
+            display = translated if translated != text else text
+            libras_signs = display.split()
         else:
             display = text
-        self.speech_queue.append((display, duration))
+        self.speech_queue.append((display, duration, libras_signs))
         if self.talking_timer is None:
             self._show_next_speech()
         self._speak_text(text)
@@ -761,12 +763,14 @@ class TetoPet(Gtk.Window):
         if not self.speech_queue:
             self.talking_timer = None
             self.current_speech = None
+            self.current_libras_signs = None
             self.character.set_talking(False)
             self.da.queue_draw()
             return
 
-        text, duration = self.speech_queue.pop(0)
+        text, duration, libras_signs = self.speech_queue.pop(0)
         self.current_speech = text
+        self.current_libras_signs = libras_signs
         self.character.set_talking(True)
         self.da.queue_draw()
 
@@ -776,6 +780,7 @@ class TetoPet(Gtk.Window):
 
     def _clear_speech(self):
         self.current_speech = None
+        self.current_libras_signs = None
         self.character.set_talking(False)
         self.da.queue_draw()
         GLib.idle_add(self._show_next_speech)
@@ -845,6 +850,13 @@ class TetoPet(Gtk.Window):
         bh = logical.height + BUBBLE_PAD * 2 + 6
         by = CHAR_Y
 
+        card_h = 26
+        card_gap = 4
+        pad = 8
+        has_cards = getattr(self, 'current_libras_signs', None) and len(self.current_libras_signs) > 0
+        if has_cards:
+            bh += card_h + card_gap + 4
+
         cr.set_source_rgba(1, 1, 1, 0.92)
         r = 8
         cr.move_to(bx + r, by)
@@ -870,7 +882,88 @@ class TetoPet(Gtk.Window):
         cr.move_to(bx + BUBBLE_PAD, by + BUBBLE_PAD + 2)
         PangoCairo.show_layout(cr, layout)
 
+        if has_cards:
+            self._draw_libras_cards(cr, bx, bw, by, bh, card_h, pad)
+
         cr.restore()
+
+    def _draw_libras_cards(self, cr, bx, bw, by, bh, card_h, pad):
+        signs = self.current_libras_signs
+        card_palette = [
+            (0.87, 0.38, 0.38),  (0.35, 0.70, 0.88),
+            (0.47, 0.78, 0.42),  (0.95, 0.62, 0.22),
+            (0.61, 0.42, 0.82),  (0.91, 0.76, 0.26),
+            (0.23, 0.65, 0.66),  (0.84, 0.49, 0.68),
+        ]
+
+        fd_card = Pango.FontDescription(f"{model.FONT_NAME} 10")
+        layouts = []
+        total_w = 0
+        gap = 4
+
+        for s in signs:
+            lay = PangoCairo.create_layout(cr)
+            lay.set_text(s, -1)
+            lay.set_font_description(fd_card)
+            _, ext = lay.get_pixel_extents()
+            w = ext.width + pad * 2
+            layouts.append((lay, w, ext.width))
+            total_w += w + gap
+        total_w -= gap
+
+        avail_w = bw - BUBBLE_PAD * 2
+        card_y = by + bh - card_h - 4
+
+        if total_w > avail_w:
+            scale = (avail_w - gap * (len(signs) - 1)) / (total_w - gap * (len(signs) - 1))
+            scale = max(scale, 0.5)
+        else:
+            scale = 1.0
+
+        remapped = []
+        for s in signs:
+            lay = PangoCairo.create_layout(cr)
+            lay.set_text(s, -1)
+            fd_scaled = Pango.FontDescription(f"{model.FONT_NAME} {max(8, int(10 * scale))}")
+            lay.set_font_description(fd_scaled)
+            _, ext = lay.get_pixel_extents()
+            w = ext.width + max(int(pad * scale), 4)
+            remapped.append((lay, w, ext.width))
+
+        total_w = sum(w for _, w, _ in remapped) + gap * (len(remapped) - 1)
+        if total_w > avail_w:
+            real_scale = (avail_w - gap * (len(remapped) - 1)) / (total_w - gap * (len(remapped) - 1))
+            remapped2 = []
+            for s in signs:
+                lay = PangoCairo.create_layout(cr)
+                lay.set_text(s, -1)
+                fs = max(7, int(10 * scale * real_scale))
+                lay.set_font_description(Pango.FontDescription(f"{model.FONT_NAME} {fs}"))
+                _, ext = lay.get_pixel_extents()
+                w = ext.width + max(int(pad * scale * real_scale), 4)
+                remapped2.append((lay, w, ext.width))
+            remapped = remapped2
+            total_w = sum(w for _, w, _ in remapped) + gap * (len(remapped) - 1)
+
+        card_x = bx + (bw - total_w) / 2
+        for i, (lay, cw, _) in enumerate(remapped):
+            clr = card_palette[i % len(card_palette)]
+            cr.set_source_rgba(*clr, 0.85)
+            r2 = 6
+            cr.move_to(card_x + r2, card_y)
+            cr.arc(card_x + cw - r2, card_y + r2, r2, -math.pi/2, 0)
+            cr.arc(card_x + cw - r2, card_y + card_h - r2, r2, 0, math.pi/2)
+            cr.arc(card_x + r2, card_y + card_h - r2, r2, math.pi/2, math.pi)
+            cr.arc(card_x + r2, card_y + r2, r2, math.pi, 3*math.pi/2)
+            cr.close_path()
+            cr.fill()
+
+            cr.set_source_rgba(1, 1, 1, 0.95)
+            _, ext = lay.get_pixel_extents()
+            cr.move_to(card_x + (cw - ext.width) / 2, card_y + (card_h - ext.height) / 2)
+            PangoCairo.show_layout(cr, lay)
+
+            card_x += cw + gap
 
     # ─── Eventos do mouse ─────────────────────────────
 
@@ -1600,11 +1693,6 @@ class TetoPet(Gtk.Window):
             text = ai.transcribe(wav)
             if text and re.search(r'[a-zA-Záéíóúâêîôûãõçàèìòùäëïöüñ]', text):
                 text = text.strip()
-                # Ignora transcrições muito curtas (geralmente ruído/alucinação)
-                words = text.split()
-                if len(words) < 2:
-                    log("STT contínuo: ignorado (poucas palavras): %s", text)
-                    return
                 # Ignora texto repetido (alucinação do Whisper com ruído)
                 if text == getattr(self, '_last_stt_text', ''):
                     log("STT contínuo: ignorado (repetido): %s", text)

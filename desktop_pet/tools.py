@@ -1,3 +1,4 @@
+import math
 import os
 import io
 import re
@@ -6,6 +7,12 @@ import base64
 import array
 import subprocess
 import tempfile
+
+try:
+    import webrtcvad
+    HAS_WEBRTCVAD = True
+except ImportError:
+    HAS_WEBRTCVAD = False
 
 from PIL import ImageGrab
 
@@ -240,18 +247,27 @@ def listen_mic(device=None, duration=5, stop_event=None):
         if not os.path.exists(raw.name) or os.path.getsize(raw.name) < 100:
             os.unlink(raw.name)
             return "Erro: áudio muito curto"
-        # Detecta silêncio — evita enviar ruído ambiente pro Whisper
-        try:
-            data = open(raw.name, "rb").read()
-            samples = array.array('h')
-            samples.frombytes(data[:200000])
-            if samples:
-                rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
-                if rms < 100:
-                    os.unlink(raw.name)
-                    return "Erro: áudio muito baixo (silêncio)"
-        except Exception:
-            pass
+        # VAD (Voice Activity Detection) — evita enviar ruído pro Whisper
+        if HAS_WEBRTCVAD:
+            try:
+                data = open(raw.name, "rb").read()
+                vad = webrtcvad.Vad(2)
+                samples = array.array('h')
+                samples.frombytes(data)
+                frame_len = 480  # 30ms @ 16kHz
+                total = len(samples) // frame_len
+                if total > 0:
+                    speech_frames = 0
+                    for i in range(total):
+                        frame = samples[i * frame_len:(i + 1) * frame_len].tobytes()
+                        if vad.is_speech(frame, 16000):
+                            speech_frames += 1
+                    ratio = speech_frames / total
+                    if ratio < 0.05:
+                        os.unlink(raw.name)
+                        return "Erro: áudio parece ruído (VAD)"
+            except Exception:
+                pass
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.close()
         ret = subprocess.run(
