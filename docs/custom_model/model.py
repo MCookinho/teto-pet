@@ -25,6 +25,13 @@ SPRITE_NAMES = {
 # Optional ringtone for alarms. Set to None to disable.
 RINGTONE_PATH = None  # or: os.path.join(MODEL_DIR, "ringtone.mp3")
 
+# ── Background ─────────────────────────────────────────────
+# When Fullscreen mode is enabled, this image is drawn as the
+# desktop background behind the pet. Place background.jpg (or
+# .png) in the model folder. The image automatically scales to
+# fill any monitor. No file = transparent background.
+# BACKGROUND_PATH = os.path.join(MODEL_DIR, "background.jpg")
+
 # ── Font ──────────────────────────────────────────────────
 # Optional custom font. Falls back to system default if unset.
 FONT_NAME = None  # e.g. "Pixelify Sans"

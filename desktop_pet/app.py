@@ -76,6 +76,8 @@ class TetoPet(Gtk.Window):
         self._ptt_helper_path = os.path.expanduser("~/.local/bin/mate-helper-ptt")
         os.makedirs(os.path.dirname(self._ptt_socket_path), exist_ok=True)
         self._start_ptt_socket_server()
+        self._bg_surface = None
+        self._fullscreen = False
         self._start_all_timers()
         self._start_alarm_check()
         GLib.idle_add(self._start_mic_listener)
@@ -100,6 +102,10 @@ class TetoPet(Gtk.Window):
             | Gdk.EventMask.BUTTON_RELEASE_MASK
             | Gdk.EventMask.POINTER_MOTION_MASK
         )
+
+        self._load_background()
+        if self.cfg.get("fullscreen", False):
+            GLib.idle_add(self._apply_fullscreen)
         self.da.connect("button-press-event", self._on_button_press)
         self.da.connect("button-release-event", self._on_button_release)
         self.da.connect("motion-notify-event", self._on_motion)
@@ -819,9 +825,21 @@ class TetoPet(Gtk.Window):
 
     def _on_draw(self, widget, cr):
         w, h = widget.get_allocated_width(), widget.get_allocated_height()
-        cr.set_source_rgba(0, 0, 0, 0)
-        cr.set_operator(cairo.Operator.SOURCE)
-        cr.paint()
+
+        if self.cfg.get("fullscreen", False) and self._bg_surface is not None:
+            cr.set_operator(cairo.Operator.SOURCE)
+            bw = self._bg_surface.get_width()
+            bhi = self._bg_surface.get_height()
+            cr.save()
+            cr.scale(w / bw, h / bhi)
+            cr.set_source_surface(self._bg_surface, 0, 0)
+            cr.paint()
+            cr.restore()
+        else:
+            cr.set_source_rgba(0, 0, 0, 0)
+            cr.set_operator(cairo.Operator.SOURCE)
+            cr.paint()
+
         cr.set_operator(cairo.Operator.OVER)
 
         char_x, bubble_x, tail_dir = self._get_layout()
@@ -1080,6 +1098,11 @@ class TetoPet(Gtk.Window):
         top_item.set_active(self.cfg.get("always_on_top", True))
         top_item.connect("toggled", self._toggle_ontop)
         appear_menu.append(top_item)
+
+        fs_item = Gtk.CheckMenuItem.new_with_label(self._("menu_fullscreen"))
+        fs_item.set_active(self.cfg.get("fullscreen", False))
+        fs_item.connect("toggled", self._toggle_fullscreen)
+        appear_menu.append(fs_item)
 
         bubble_menu = Gtk.Menu()
         bubble_sub = Gtk.MenuItem.new_with_label(self._("menu_bubble_side"))
@@ -1539,6 +1562,36 @@ class TetoPet(Gtk.Window):
         self.cfg["always_on_top"] = item.get_active()
         self.set_keep_above(item.get_active())
         config.save(self.cfg)
+
+    def _toggle_fullscreen(self, item):
+        self.cfg["fullscreen"] = item.get_active()
+        config.save(self.cfg)
+        if item.get_active():
+            self.fullscreen()
+        else:
+            self.unfullscreen()
+        self.da.queue_draw()
+
+    def _apply_fullscreen(self):
+        if self.cfg.get("fullscreen", False):
+            self.fullscreen()
+
+    def _load_background(self):
+        self._bg_surface = None
+        for ext in ("jpg", "jpeg", "png"):
+            path = os.path.join(model.MODEL_DIR, f"background.{ext}")
+            if os.path.exists(path):
+                try:
+                    from PIL import Image
+                    import io
+                    img = Image.open(path).convert("RGBA")
+                    with io.BytesIO() as buf:
+                        img.save(buf, format="PNG")
+                        buf.seek(0)
+                        self._bg_surface = cairo.ImageSurface.create_from_png(buf)
+                except Exception:
+                    pass
+                return
 
     def _toggle_tool(self, item, key):
         self.cfg[key] = item.get_active()
