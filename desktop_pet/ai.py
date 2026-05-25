@@ -245,16 +245,25 @@ def _ask_hf(message, history):
         return None
 
     models = [
-        "microsoft/DialoGPT-medium",
-        "microsoft/DialoGPT-small",
+        "google/gemma-2-2b-it",
+        "Qwen/Qwen2.5-1.5B-Instruct",
     ]
 
+    msgs = _build_messages(history, message)
+    chat_msgs = [m for m in msgs if m["role"] != "system"]
+    sys_prompt = next((m["content"] for m in msgs if m["role"] == "system"), "")
+
     for model_id in models:
-        prompt = _build_prompt("default", message, history)
         try:
+            body = {
+                "model": model_id,
+                "messages": [{"role": "system", "content": sys_prompt}] + chat_msgs,
+                "max_tokens": 200,
+                "temperature": 0.8,
+            }
             resp = requests.post(
-                f"https://router.huggingface.co/hf-inference/models/{model_id}",
-                json={"inputs": prompt, "parameters": _params("default")},
+                "https://router.huggingface.co/hf-inference/v1/chat/completions",
+                json=body,
                 timeout=15,
                 headers={
                     "Authorization": f"Bearer {hf_token}",
@@ -276,17 +285,12 @@ def _ask_hf(message, history):
             continue
 
         try:
-            data = resp.json()
-        except ValueError:
+            text = resp.json()["choices"][0]["message"]["content"].strip()
+            if text:
+                return text
+        except (KeyError, IndexError, ValueError) as e:
+            log("HF %s parse error: %s", model_id, e)
             continue
-
-        text = _extract(data)
-        if not text:
-            continue
-
-        after = text.split("Teto:")[-1].strip()
-        if after and not after.startswith("User:"):
-            return after
 
     return None
 
@@ -518,35 +522,4 @@ def ollama_stop():
     _ollama_started_by_us = False
 
 
-# ─── Shared helpers ────────────────────────────────────────
 
-
-def _params(fmt):
-    base = {"max_new_tokens": 60, "temperature": 0.8, "top_p": 0.9, "do_sample": True}
-    if fmt == "default":
-        base["max_new_tokens"] = 80
-    return base
-
-
-def _build_prompt(fmt, message, history):
-    if fmt == "zephyr":
-        p = f"<|system|>\n{SYSTEM}\n"
-        for h in history[-6:]:
-            role = h["role"]
-            p += f"<|{'user' if role == 'user' else 'assistant'}|>\n{h['content']}\n"
-        p += "<|assistant|>\n"
-    else:
-        p = f"{SYSTEM}\n"
-        for h in history[-6:]:
-            p += f"{'User' if h['role'] == 'user' else 'Teto'}: {h['content']}\n"
-        p += "Teto:"
-    return p
-
-
-def _extract(data):
-    if isinstance(data, list) and data:
-        entry = data[0]
-        return entry.get("generated_text", "") if isinstance(entry, dict) else str(entry)
-    if isinstance(data, dict):
-        return data.get("generated_text", "")
-    return None
