@@ -1408,8 +1408,26 @@ class TetoPet(Gtk.Window):
 
     def _handle_mic_speech(self, text):
         if self.chat_window is None:
-            self._open_chat()
+            self._open_chat(hidden=True)
         self.chat_window._process_user_text(text)
+
+    def _open_chat(self, hidden=False):
+        if self.chat_window is not None:
+            if not hidden:
+                self.chat_window.present()
+            return
+        self.chat_window = ChatWindow(self)
+        self.chat_window.connect("destroy", self._on_chat_closed)
+
+        self.chat_window.connect("teto-speech", self._on_chat_speech)
+        self.chat_window.connect("alarm-command", self._alarm_stop_from_chat)
+        self.chat_window.connect("key-press-event", self._on_key_press)
+        self.chat_window.connect("key-release-event", self._on_key_release)
+        self.chat_window.entry.connect("key-press-event", self._on_key_press)
+        self.chat_window.entry.connect("key-release-event", self._on_key_release)
+        self.chat_window.show_all()
+        if hidden:
+            self.chat_window.hide()
 
     # ─── Atalho global (Win+V) ────────────────────────
 
