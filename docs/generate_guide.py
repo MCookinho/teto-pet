@@ -22,7 +22,36 @@ W = 210  # A4 width
 H = 297  # A4 height
 
 # ── PDF class ───────────────────────────────────────────────────
-FONT_DIR = "/usr/share/fonts/TTF"
+import sys
+FONT_CANDIDATES = [
+    "/usr/share/fonts/TTF",
+    "/usr/share/fonts/truetype/dejavu",
+    "/usr/local/share/fonts",
+    os.path.expanduser("~/.fonts"),
+    "C:/Windows/Fonts",
+]
+FONT_DIR = None
+for d in FONT_CANDIDATES:
+    if os.path.isdir(d) and os.path.isfile(os.path.join(d, "DejaVuSans.ttf")):
+        FONT_DIR = d
+        break
+# Try to find using platform fallback
+if FONT_DIR is None:
+    import subprocess
+    try:
+        result = subprocess.run(["fc-match", "-v", "DejaVu Sans"],
+                                capture_output=True, text=True, timeout=5)
+        for line in result.stdout.split("\n"):
+            if "file:" in line:
+                fp = line.split('"')[1] if '"' in line else ""
+                if fp:
+                    FONT_DIR = os.path.dirname(fp)
+                    break
+    except Exception:
+        pass
+if FONT_DIR is None:
+    print("DejaVu Sans not found; install ttf-dejavu or ship the font files")
+    sys.exit(1)
 
 class GuidePDF(FPDF):
     chapter = 0
