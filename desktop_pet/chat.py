@@ -127,6 +127,7 @@ class ChatWindow(Gtk.Window):
     __gsignals__ = {
         "teto-speech": (GObject.SignalFlags.RUN_FIRST, None, (str, object)),
         "alarm-command": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        "tts-speak": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
     }
 
     def __init__(self, parent=None):
@@ -644,6 +645,7 @@ class ChatWindow(Gtk.Window):
 
                 self._add_bubble(model.PET_SHORT_NAME, reply, "teto")
                 self.emit("teto-speech", reply, reply_mood)
+                self.emit("tts-speak", reply)
 
         if image_base64:
             ai.ask(text, self.history, callback=on_reply, image_base64=image_base64)

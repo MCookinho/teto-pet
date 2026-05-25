@@ -22,10 +22,12 @@ from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo, cairo
 from desktop_pet import config, ai
 from desktop_pet.log import log
 from desktop_pet.models import model, list_models
+
 from desktop_pet.character import Teto, Mood, FRAME_MS
 from desktop_pet.chat import ChatWindow
 from desktop_pet.ai import ollama_ensure_running, ollama_stop
 from desktop_pet.tools import screenshot as _screenshot_fn, listen as _listen_fn, listen_mic, list_mic_sources
+from desktop_pet import tts as tts_mod
 
 
 CHAR_SCALE = 5
@@ -113,14 +115,17 @@ class TetoPet(Gtk.Window):
         if provider in (config.PROVIDER_AUTO, config.PROVIDER_OLLAMA):
             GLib.idle_add(self._start_ollama_if_needed)
 
-        GLib.idle_add(lambda: self.show_speech(model.phrases.pick("GREETING", "Oii! Que bom te ver! ^_^"), 5))
+        GLib.idle_add(lambda: self.show_speech(model.phrases.pick("GREETING", self._("greeting")), 5))
         GLib.idle_add(self._setup_global_hotkey)
+
+    def _(self, key, **kwargs):
+        return model.get_string(self.cfg.get("language", "pt"), key, **kwargs)
 
     def _start_ollama_if_needed(self):
         if ollama_ensure_running():
-            self.show_speech(model.phrases.pick("OLLAMA_STARTED", "Ollama ligado! Tô pronta pra conversar! ^_^"))
+            self.show_speech(model.phrases.pick("OLLAMA_STARTED", self._("ollama_started")))
         else:
-            self.show_speech(model.phrases.pick("OLLAMA_NOT_FOUND", "Hmm, não achei o Ollama... Vou usar frases prontas mesmo!"))
+            self.show_speech(model.phrases.pick("OLLAMA_NOT_FOUND", self._("ollama_not_found")))
         return False
 
     # ─── Animação ──────────────────────────────────────
@@ -312,11 +317,11 @@ class TetoPet(Gtk.Window):
 
     def _setup_speech_timer(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Timer de fala",
+            title=self._("speech_timer_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
 
         area = dialog.get_content_area()
@@ -324,45 +329,33 @@ class TetoPet(Gtk.Window):
         area.set_margin_end(12)
         area.set_margin_top(12)
         area.set_margin_bottom(12)
-
-        lbl = Gtk.Label(label="Daqui a quantos segundos o pet deve falar?")
-        lbl.set_xalign(0)
-        area.pack_start(lbl, False, False, 6)
-
-        adj = Gtk.Adjustment(value=30, lower=5, upper=3600, step_increment=5)
-        spin = Gtk.SpinButton(adjustment=adj)
-        spin.set_numeric(True)
+        lbl = Gtk.Label(label=self._("speech_exact_label"))
+        lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
+        adj = Gtk.Adjustment(value=self.cfg.get("speech_exact_interval", 60), lower=5, upper=600, step_increment=5)
+        spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
         area.pack_start(spin, False, False, 4)
-
         area.show_all()
-
         if dialog.run() == Gtk.ResponseType.OK:
-            seconds = int(spin.get_value())
-            log("Timer de fala: %ss", seconds)
-            GLib.timeout_add_seconds(seconds, self._speech_timer_shot)
+            self.cfg["speech_exact_interval"] = int(spin.get_value())
+            config.save(self.cfg)
+            if self.cfg.get("accessibility_speech_enabled", False):
+                self._start_all_timers()
         dialog.destroy()
-
-    def _speech_timer_shot(self):
-        phrase = model.phrases.get_fallback("")
-        if phrase:
-            self.show_speech(phrase, 6)
-            self._add_chat_message(phrase)
-        return False
 
     # ─── Diálogos de configuração manual ─────────────
 
     def _setup_accessibility_interval(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Intervalo da leitura automática",
+            title=self._("accessibility_interval_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="A cada quantos segundos a tela deve ser lida?")
+        lbl = Gtk.Label(label=self._("accessibility_interval_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("accessibility_interval", 30), lower=5, upper=300, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -377,16 +370,16 @@ class TetoPet(Gtk.Window):
 
     def _setup_accessibility_min(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Mínimo entre leituras",
+            title=self._("accessibility_min_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="Segundos mínimo entre leituras?")
+        lbl = Gtk.Label(label=self._("accessibility_min_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("accessibility_min_interval", 15), lower=5, upper=300, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -401,16 +394,16 @@ class TetoPet(Gtk.Window):
 
     def _setup_accessibility_max(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Máximo entre leituras",
+            title=self._("accessibility_max_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="Segundos máximo entre leituras?")
+        lbl = Gtk.Label(label=self._("accessibility_max_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("accessibility_max_interval", 60), lower=10, upper=300, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -425,16 +418,16 @@ class TetoPet(Gtk.Window):
 
     def _setup_audio_interval(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Intervalo da transcrição de áudio",
+            title=self._("audio_interval_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="A cada quantos segundos o áudio deve ser transcrito?")
+        lbl = Gtk.Label(label=self._("audio_interval_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("accessibility_audio_interval", 10), lower=5, upper=120, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -449,16 +442,16 @@ class TetoPet(Gtk.Window):
 
     def _setup_audio_min(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Mínimo entre áudios",
+            title=self._("audio_min_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="Segundos mínimo entre transcrições?")
+        lbl = Gtk.Label(label=self._("audio_min_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("accessibility_audio_min_interval", 5), lower=5, upper=120, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -473,16 +466,16 @@ class TetoPet(Gtk.Window):
 
     def _setup_audio_max(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Máximo entre áudios",
+            title=self._("audio_max_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="Segundos máximo entre transcrições?")
+        lbl = Gtk.Label(label=self._("audio_max_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("accessibility_audio_max_interval", 30), lower=10, upper=120, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -497,16 +490,16 @@ class TetoPet(Gtk.Window):
 
     def _setup_speech_min(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Intervalo mínimo entre falas",
+            title=self._("speech_min_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="Segundos mínimo entre falas aleatórias?")
+        lbl = Gtk.Label(label=self._("speech_min_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("speech_min_interval", 30), lower=5, upper=600, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -521,16 +514,16 @@ class TetoPet(Gtk.Window):
 
     def _setup_speech_max(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Intervalo máximo entre falas",
+            title=self._("speech_max_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="Segundos máximo entre falas aleatórias?")
+        lbl = Gtk.Label(label=self._("speech_max_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("speech_max_interval", 120), lower=10, upper=600, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -545,16 +538,16 @@ class TetoPet(Gtk.Window):
 
     def _setup_speech_exact(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Intervalo exato entre falas",
+            title=self._("speech_exact_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 100)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="A cada quantos segundos o pet deve falar?")
+        lbl = Gtk.Label(label=self._("speech_exact_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(value=self.cfg.get("speech_exact_interval", 60), lower=5, upper=600, step_increment=5)
         spin = Gtk.SpinButton(adjustment=adj); spin.set_numeric(True)
@@ -605,7 +598,7 @@ class TetoPet(Gtk.Window):
         if phrases:
             msg = random.choice(phrases)
         else:
-            msg = "Hora do alarme! 🎵"
+            msg = self._("alarm_stopped_generic")
         self.show_speech(msg, 6)
         self._add_chat_message(msg)
         if hasattr(self, '_alarm_stop_item'):
@@ -634,7 +627,7 @@ class TetoPet(Gtk.Window):
             self.character.set_mood(Mood.NORMAL)
         if hasattr(self, '_alarm_stop_item'):
             self._alarm_stop_item.set_sensitive(False)
-        phrase = model.phrases.pick("ALARM_STOPPED", "Alarme desligado! ^_^")
+        phrase = model.phrases.pick("ALARM_STOPPED", self._("alarm_stopped_msg"))
         self.show_speech(phrase, 3)
         self._add_chat_message(phrase)
         self._start_alarm_check()
@@ -662,16 +655,16 @@ class TetoPet(Gtk.Window):
             deleted = alarms.pop(idx)
             self.cfg["alarms"] = alarms
             config.save(self.cfg)
-            phrase = model.phrases.pick("ALARM_DELETED", "Alarme removido!")
+            phrase = model.phrases.pick("ALARM_DELETED", self._("alarm_deleted_msg"))
             self.show_speech(f"{phrase} ({deleted['hour']:02d}:{deleted['minute']:02d})", 3)
 
     def _setup_alarm(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Adicionar Alarme",
+            title=self._("add_alarm_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Adicionar", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_add"), Gtk.ResponseType.OK)
         dialog.set_default_size(300, 240)
 
         area = dialog.get_content_area()
@@ -681,8 +674,7 @@ class TetoPet(Gtk.Window):
         area.set_margin_bottom(12)
 
         lbl = Gtk.Label()
-        lbl.set_markup("<b>Novo Alarme</b>\n\n"
-                       "Escolha o horário. Pode criar quantos quiser!")
+        lbl.set_markup(self._("add_alarm_markup"))
         lbl.set_line_wrap(True)
         lbl.set_xalign(0)
         area.pack_start(lbl, False, False, 6)
@@ -691,7 +683,7 @@ class TetoPet(Gtk.Window):
         hbox.set_halign(Gtk.Align.CENTER)
         hbox.set_margin_top(12)
 
-        hour_lbl = Gtk.Label(label="Hora:")
+        hour_lbl = Gtk.Label(label=self._("add_alarm_hour_label"))
         hbox.pack_start(hour_lbl, False, False, 2)
         hour_adj = Gtk.Adjustment(value=8, lower=0, upper=23, step_increment=1)
         hour_spin = Gtk.SpinButton(adjustment=hour_adj)
@@ -701,7 +693,7 @@ class TetoPet(Gtk.Window):
         sep = Gtk.Label(label=":")
         hbox.pack_start(sep, False, False, 2)
 
-        min_lbl = Gtk.Label(label="Min:")
+        min_lbl = Gtk.Label(label=self._("add_alarm_min_label"))
         hbox.pack_start(min_lbl, False, False, 2)
         min_adj = Gtk.Adjustment(value=0, lower=0, upper=59, step_increment=5)
         min_spin = Gtk.SpinButton(adjustment=min_adj)
@@ -710,11 +702,11 @@ class TetoPet(Gtk.Window):
 
         area.pack_start(hbox, False, False, 6)
 
-        name_lbl = Gtk.Label(label="Nome (opcional):")
+        name_lbl = Gtk.Label(label=self._("add_alarm_name_label"))
         name_lbl.set_xalign(0)
         area.pack_start(name_lbl, False, False, 2)
         name_entry = Gtk.Entry()
-        name_entry.set_placeholder_text("Ex: Acordar, Almoço, Remédio...")
+        name_entry.set_placeholder_text(self._("add_alarm_name_placeholder"))
         area.pack_start(name_entry, False, False, 4)
 
         area.show_all()
@@ -729,7 +721,7 @@ class TetoPet(Gtk.Window):
             })
             self.cfg["alarms"] = alarms
             config.save(self.cfg)
-            self.show_speech(model.phrases.pick("ALARM_ADDED", "Alarme adicionado! 💃"), 3)
+            self.show_speech(model.phrases.pick("ALARM_ADDED", self._("alarm_added_msg")), 3)
             self._start_alarm_check()
         dialog.destroy()
 
@@ -911,16 +903,16 @@ class TetoPet(Gtk.Window):
         menu = Gtk.Menu()
 
         # ── Conversa ────────────────────────────────
-        chat_item = Gtk.MenuItem.new_with_label("Conversar")
+        chat_item = Gtk.MenuItem.new_with_label(self._("menu_chat"))
         chat_item.connect("activate", lambda _: self._open_chat())
         menu.append(chat_item)
 
         # ── Alarme ────────────────────────────────
         alarm_menu = Gtk.Menu()
-        alarm_sub = Gtk.MenuItem.new_with_label("Alarme")
+        alarm_sub = Gtk.MenuItem.new_with_label(self._("menu_alarm"))
         alarm_sub.set_submenu(alarm_menu)
 
-        add_alarm = Gtk.MenuItem.new_with_label("Adicionar alarme...")
+        add_alarm = Gtk.MenuItem.new_with_label(self._("menu_add_alarm"))
         add_alarm.connect("activate", self._setup_alarm)
         alarm_menu.append(add_alarm)
 
@@ -933,18 +925,18 @@ class TetoPet(Gtk.Window):
             sub = Gtk.Menu()
             sub_item = Gtk.MenuItem.new_with_label(label)
             sub_item.set_submenu(sub)
-            toggle_item = Gtk.CheckMenuItem.new_with_label("Ativado")
+            toggle_item = Gtk.CheckMenuItem.new_with_label(self._("alarm_toggle_label"))
             toggle_item.set_active(alm.get("enabled", True))
             toggle_item.connect("toggled", self._toggle_alarm_item, i)
             sub.append(toggle_item)
-            delete_item = Gtk.MenuItem.new_with_label("Deletar")
+            delete_item = Gtk.MenuItem.new_with_label(self._("alarm_delete_label"))
             delete_item.connect("activate", self._delete_alarm, i)
             sub.append(delete_item)
             alarm_menu.append(sub_item)
 
         alarm_menu.append(Gtk.SeparatorMenuItem())
 
-        self._alarm_stop_item = Gtk.MenuItem.new_with_label("Parar Alarme")
+        self._alarm_stop_item = Gtk.MenuItem.new_with_label(self._("menu_stop_alarm"))
         self._alarm_stop_item.connect("activate", lambda _: self._stop_alarm())
         self._alarm_stop_item.set_sensitive(self._alarm_ringing)
         alarm_menu.append(self._alarm_stop_item)
@@ -953,7 +945,7 @@ class TetoPet(Gtk.Window):
 
         # ── Modelo do pet ──────────────────────────
         model_menu = Gtk.Menu()
-        model_sub = Gtk.MenuItem.new_with_label("Modelo do pet")
+        model_sub = Gtk.MenuItem.new_with_label(self._("menu_model"))
         model_sub.set_submenu(model_menu)
         current_model = self.cfg.get("active_model", "kasane_teto")
         group_model = []
@@ -972,28 +964,28 @@ class TetoPet(Gtk.Window):
 
         # ── Configurações ─────────────────────────
         cfg_menu = Gtk.Menu()
-        cfg_sub = Gtk.MenuItem.new_with_label("Configurações")
+        cfg_sub = Gtk.MenuItem.new_with_label(self._("menu_settings"))
         cfg_sub.set_submenu(cfg_menu)
 
         # ── 🖥  Aparência ──
         appear_menu = Gtk.Menu()
-        appear_sub = Gtk.MenuItem.new_with_label("\U0001f5a5  Aparência")
+        appear_sub = Gtk.MenuItem.new_with_label(self._("menu_appearance"))
         appear_sub.set_submenu(appear_menu)
 
-        top_item = Gtk.CheckMenuItem.new_with_label("Sempre no topo")
+        top_item = Gtk.CheckMenuItem.new_with_label(self._("menu_always_on_top"))
         top_item.set_active(self.cfg.get("always_on_top", True))
         top_item.connect("toggled", self._toggle_ontop)
         appear_menu.append(top_item)
 
         bubble_menu = Gtk.Menu()
-        bubble_sub = Gtk.MenuItem.new_with_label("Lado do balão")
+        bubble_sub = Gtk.MenuItem.new_with_label(self._("menu_bubble_side"))
         bubble_sub.set_submenu(bubble_menu)
         current_side = self.cfg.get("bubble_side", config.BUBBLE_AUTO)
         group_side = []
         for key, label in [
-            (config.BUBBLE_AUTO, "Automático"),
-            (config.BUBBLE_LEFT, "Esquerda"),
-            (config.BUBBLE_RIGHT, "Direita"),
+            (config.BUBBLE_AUTO, self._("menu_bubble_auto")),
+            (config.BUBBLE_LEFT, self._("menu_bubble_left")),
+            (config.BUBBLE_RIGHT, self._("menu_bubble_right")),
         ]:
             item = Gtk.RadioMenuItem.new_with_label(group_side, label)
             if key == current_side:
@@ -1005,7 +997,7 @@ class TetoPet(Gtk.Window):
 
         appear_menu.append(Gtk.SeparatorMenuItem())
 
-        scale_item = Gtk.MenuItem.new_with_label("Tamanho da janela...")
+        scale_item = Gtk.MenuItem.new_with_label(self._("menu_window_size"))
         scale_item.connect("activate", self._setup_window_scale)
         appear_menu.append(scale_item)
 
@@ -1015,12 +1007,12 @@ class TetoPet(Gtk.Window):
 
         # ── 🤖  Acessibilidade / Automação ──
         acc_menu = Gtk.Menu()
-        acc_sub = Gtk.MenuItem.new_with_label("\U0001f916  Automação")
+        acc_sub = Gtk.MenuItem.new_with_label(self._("menu_automation"))
         acc_sub.set_submenu(acc_menu)
 
         use_model = self._use_model_tasks()
 
-        model_defaults_toggle = Gtk.CheckMenuItem.new_with_label("Padrão do Modelo")
+        model_defaults_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_model_defaults"))
         model_defaults_toggle.set_active(use_model)
         model_defaults_toggle.connect("toggled", self._toggle_use_model_defaults)
         acc_menu.append(model_defaults_toggle)
@@ -1028,11 +1020,11 @@ class TetoPet(Gtk.Window):
         acc_menu.append(Gtk.SeparatorMenuItem())
 
         # Leitura de tela
-        screen_sub = Gtk.MenuItem.new_with_label("Leitura de tela")
+        screen_sub = Gtk.MenuItem.new_with_label(self._("menu_screen_reading"))
         screen_menu = Gtk.Menu()
         screen_sub.set_submenu(screen_menu)
 
-        screen_toggle = Gtk.CheckMenuItem.new_with_label("Ativar")
+        screen_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_enable"))
         screen_toggle.set_active(self.cfg.get("accessibility_enabled", False))
         screen_toggle.connect("toggled", self._toggle_accessibility)
         screen_toggle.set_sensitive(not use_model)
@@ -1042,7 +1034,7 @@ class TetoPet(Gtk.Window):
 
         current_screen_mode = self.cfg.get("accessibility_mode", "aleatorio")
         group_screen = []
-        for mode, label in [("aleatorio", "Aleatório"), ("exato", "Exato")]:
+        for mode, label in [("aleatorio", self._("menu_random")), ("exato", self._("menu_exact"))]:
             item = Gtk.RadioMenuItem.new_with_label(group_screen, label)
             if mode == current_screen_mode:
                 item.set_active(True)
@@ -1054,16 +1046,16 @@ class TetoPet(Gtk.Window):
         screen_menu.append(Gtk.SeparatorMenuItem())
 
         if current_screen_mode == "aleatorio":
-            screen_min = Gtk.MenuItem.new_with_label("Mínimo...")
+            screen_min = Gtk.MenuItem.new_with_label(self._("menu_minimum"))
             screen_min.connect("activate", self._setup_accessibility_min)
             screen_min.set_sensitive(not use_model)
             screen_menu.append(screen_min)
-            screen_max = Gtk.MenuItem.new_with_label("Máximo...")
+            screen_max = Gtk.MenuItem.new_with_label(self._("menu_maximum"))
             screen_max.connect("activate", self._setup_accessibility_max)
             screen_max.set_sensitive(not use_model)
             screen_menu.append(screen_max)
         else:
-            screen_interval = Gtk.MenuItem.new_with_label("Intervalo...")
+            screen_interval = Gtk.MenuItem.new_with_label(self._("menu_interval"))
             screen_interval.connect("activate", self._setup_accessibility_interval)
             screen_interval.set_sensitive(not use_model)
             screen_menu.append(screen_interval)
@@ -1071,11 +1063,11 @@ class TetoPet(Gtk.Window):
         acc_menu.append(screen_sub)
 
         # Áudio do desktop
-        audio_sub = Gtk.MenuItem.new_with_label("Áudio do desktop")
+        audio_sub = Gtk.MenuItem.new_with_label(self._("menu_desktop_audio"))
         audio_menu = Gtk.Menu()
         audio_sub.set_submenu(audio_menu)
 
-        audio_toggle = Gtk.CheckMenuItem.new_with_label("Ativar")
+        audio_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_enable"))
         audio_toggle.set_active(self.cfg.get("accessibility_audio_enabled", False))
         audio_toggle.connect("toggled", self._toggle_audio)
         audio_toggle.set_sensitive(not use_model)
@@ -1085,7 +1077,7 @@ class TetoPet(Gtk.Window):
 
         current_audio_mode = self.cfg.get("accessibility_audio_mode", "aleatorio")
         group_audio = []
-        for mode, label in [("aleatorio", "Aleatório"), ("exato", "Exato")]:
+        for mode, label in [("aleatorio", self._("menu_random")), ("exato", self._("menu_exact"))]:
             item = Gtk.RadioMenuItem.new_with_label(group_audio, label)
             if mode == current_audio_mode:
                 item.set_active(True)
@@ -1097,16 +1089,16 @@ class TetoPet(Gtk.Window):
         audio_menu.append(Gtk.SeparatorMenuItem())
 
         if current_audio_mode == "aleatorio":
-            audio_min = Gtk.MenuItem.new_with_label("Mínimo...")
+            audio_min = Gtk.MenuItem.new_with_label(self._("menu_minimum"))
             audio_min.connect("activate", self._setup_audio_min)
             audio_min.set_sensitive(not use_model)
             audio_menu.append(audio_min)
-            audio_max = Gtk.MenuItem.new_with_label("Máximo...")
+            audio_max = Gtk.MenuItem.new_with_label(self._("menu_maximum"))
             audio_max.connect("activate", self._setup_audio_max)
             audio_max.set_sensitive(not use_model)
             audio_menu.append(audio_max)
         else:
-            audio_interval = Gtk.MenuItem.new_with_label("Intervalo...")
+            audio_interval = Gtk.MenuItem.new_with_label(self._("menu_interval"))
             audio_interval.connect("activate", self._setup_audio_interval)
             audio_interval.set_sensitive(not use_model)
             audio_menu.append(audio_interval)
@@ -1114,11 +1106,11 @@ class TetoPet(Gtk.Window):
         acc_menu.append(audio_sub)
 
         # Falas aleatórias
-        speech_sub = Gtk.MenuItem.new_with_label("Falas aleatórias")
+        speech_sub = Gtk.MenuItem.new_with_label(self._("menu_random_speech"))
         speech_menu = Gtk.Menu()
         speech_sub.set_submenu(speech_menu)
 
-        speech_toggle = Gtk.CheckMenuItem.new_with_label("Ativar")
+        speech_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_enable"))
         speech_toggle.set_active(self.cfg.get("accessibility_speech_enabled", False))
         speech_toggle.connect("toggled", self._toggle_speech)
         speech_toggle.set_sensitive(not use_model)
@@ -1128,7 +1120,7 @@ class TetoPet(Gtk.Window):
 
         current_speech_mode = self.cfg.get("speech_mode", "aleatorio")
         group_speech = []
-        for mode, label in [("aleatorio", "Aleatório"), ("exato", "Exato")]:
+        for mode, label in [("aleatorio", self._("menu_random")), ("exato", self._("menu_exact"))]:
             item = Gtk.RadioMenuItem.new_with_label(group_speech, label)
             if mode == current_speech_mode:
                 item.set_active(True)
@@ -1140,23 +1132,23 @@ class TetoPet(Gtk.Window):
         speech_menu.append(Gtk.SeparatorMenuItem())
 
         if current_speech_mode == "aleatorio":
-            speech_min = Gtk.MenuItem.new_with_label("Mínimo...")
+            speech_min = Gtk.MenuItem.new_with_label(self._("menu_minimum"))
             speech_min.connect("activate", self._setup_speech_min)
             speech_min.set_sensitive(not use_model)
             speech_menu.append(speech_min)
-            speech_max = Gtk.MenuItem.new_with_label("Máximo...")
+            speech_max = Gtk.MenuItem.new_with_label(self._("menu_maximum"))
             speech_max.connect("activate", self._setup_speech_max)
             speech_max.set_sensitive(not use_model)
             speech_menu.append(speech_max)
         else:
-            speech_exact = Gtk.MenuItem.new_with_label("Intervalo...")
+            speech_exact = Gtk.MenuItem.new_with_label(self._("menu_interval"))
             speech_exact.connect("activate", self._setup_speech_exact)
             speech_exact.set_sensitive(not use_model)
             speech_menu.append(speech_exact)
 
         speech_menu.append(Gtk.SeparatorMenuItem())
 
-        speech_timer = Gtk.MenuItem.new_with_label("Timer...")
+        speech_timer = Gtk.MenuItem.new_with_label(self._("menu_timer"))
         speech_timer.connect("activate", self._setup_speech_timer)
         speech_timer.set_sensitive(not use_model)
         speech_menu.append(speech_timer)
@@ -1169,39 +1161,82 @@ class TetoPet(Gtk.Window):
 
         # ── 🎤  Áudio ──
         audio_cfg_menu = Gtk.Menu()
-        audio_cfg_sub = Gtk.MenuItem.new_with_label("\U0001f3a4  Áudio")
+        audio_cfg_sub = Gtk.MenuItem.new_with_label(self._("menu_audio_cfg"))
         audio_cfg_sub.set_submenu(audio_cfg_menu)
 
-        mic_toggle = Gtk.CheckMenuItem.new_with_label("Microfone (STT)")
+        # ── Voz (TTS) ──
+        tts_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_tts"))
+        tts_toggle.set_active(self.cfg.get("tts_enabled", False))
+        tts_toggle.connect("toggled", self._toggle_tts)
+        audio_cfg_menu.append(tts_toggle)
+
+        tts_prov_menu = Gtk.Menu()
+        tts_prov_sub = Gtk.MenuItem.new_with_label(self._("menu_tts_provider"))
+        tts_prov_sub.set_submenu(tts_prov_menu)
+        current_tts = self.cfg.get("tts_provider", "auto")
+        group_tts = []
+        for tts_key, tts_label in [
+            ("auto", self._("tts_provider_auto")),
+            ("fish_audio", self._("tts_provider_fish")),
+            ("edge_tts", self._("tts_provider_edge")),
+            ("pyttsx3", self._("tts_provider_pyttsx")),
+        ]:
+            item = Gtk.RadioMenuItem.new_with_label(group_tts, tts_label)
+            if tts_key == current_tts:
+                item.set_active(True)
+            item.connect("activate", self._change_tts_provider, tts_key)
+            tts_prov_menu.append(item)
+            group_tts = [item]
+        audio_cfg_menu.append(tts_prov_sub)
+
+        tts_device_item = Gtk.MenuItem.new_with_label(self._("menu_tts_device"))
+        tts_device_item.connect("activate", self._setup_tts_device)
+        audio_cfg_menu.append(tts_device_item)
+
+        fish_setup_item = Gtk.MenuItem.new_with_label(self._("menu_configure_fish"))
+        fish_setup_item.connect("activate", self._setup_fish_audio)
+        audio_cfg_menu.append(fish_setup_item)
+
+        audio_cfg_menu.append(Gtk.SeparatorMenuItem())
+
+        # ── Microfone (STT) ──
+        mic_toggle = Gtk.CheckMenuItem.new_with_label(self._("menu_mic_stt"))
         mic_toggle.set_active(self.cfg.get("mic_stt_enabled", False))
         mic_toggle.connect("toggled", self._toggle_mic_stt)
         audio_cfg_menu.append(mic_toggle)
 
-        audio_cfg_menu.append(Gtk.SeparatorMenuItem())
-
+        mic_mode_menu = Gtk.Menu()
+        mic_mode_sub = Gtk.MenuItem.new_with_label(self._("menu_mic_mode"))
+        mic_mode_sub.set_submenu(mic_mode_menu)
         current_stt_mode = self.cfg.get("mic_stt_mode", "toggle")
         group_stt = []
-        for val, lbl in [("hold", "Pressionar pra falar"), ("toggle", "Microfone aberto")]:
+        for val, lbl in [("hold", self._("menu_hold_to_talk")), ("toggle", self._("menu_mic_open"))]:
             item = Gtk.RadioMenuItem.new_with_label(group_stt, lbl)
             if val == current_stt_mode:
                 item.set_active(True)
             item.connect("activate", self._change_mic_stt_mode, val)
-            audio_cfg_menu.append(item)
+            mic_mode_menu.append(item)
             group_stt = [item]
+        audio_cfg_menu.append(mic_mode_sub)
 
-        audio_cfg_menu.append(Gtk.SeparatorMenuItem())
+        mic_device_item = Gtk.MenuItem.new_with_label(self._("menu_mic_device"))
+        mic_device_item.connect("activate", self._setup_mic_device)
+        audio_cfg_menu.append(mic_device_item)
 
-        shortcut_item = Gtk.MenuItem.new_with_label("Atalho do microfone...")
+        # ── Atalhos ──
+        shortcuts_menu = Gtk.Menu()
+        shortcuts_sub = Gtk.MenuItem.new_with_label(self._("menu_shortcuts"))
+        shortcuts_sub.set_submenu(shortcuts_menu)
+
+        shortcut_item = Gtk.MenuItem.new_with_label(self._("menu_mic_shortcut"))
         shortcut_item.connect("activate", self._setup_stt_shortcut)
-        audio_cfg_menu.append(shortcut_item)
+        shortcuts_menu.append(shortcut_item)
 
-        global_item = Gtk.MenuItem.new_with_label("Atalho global (Win+V)...")
+        global_item = Gtk.MenuItem.new_with_label(self._("menu_global_shortcut"))
         global_item.connect("activate", self._show_global_shortcut_help)
-        audio_cfg_menu.append(global_item)
+        shortcuts_menu.append(global_item)
 
-        mic_device = Gtk.MenuItem.new_with_label("Dispositivo do microfone...")
-        mic_device.connect("activate", self._setup_mic_device)
-        audio_cfg_menu.append(mic_device)
+        audio_cfg_menu.append(shortcuts_sub)
 
         cfg_menu.append(audio_cfg_sub)
 
@@ -1209,21 +1244,21 @@ class TetoPet(Gtk.Window):
 
         # ── 🧠  Inteligência ──
         ai_menu = Gtk.Menu()
-        ai_sub = Gtk.MenuItem.new_with_label("\U0001f9e0  Inteligência")
+        ai_sub = Gtk.MenuItem.new_with_label(self._("menu_intelligence"))
         ai_sub.set_submenu(ai_menu)
 
         provider_menu = Gtk.Menu()
-        provider_sub = Gtk.MenuItem.new_with_label("Provedor de IA")
+        provider_sub = Gtk.MenuItem.new_with_label(self._("menu_ai_provider"))
         provider_sub.set_submenu(provider_menu)
         current = self.cfg.get("ai_provider", config.PROVIDER_AUTO)
         group_prov = []
         for key, label in [
-            (config.PROVIDER_AUTO, "Automático"),
-            (config.PROVIDER_GROQ, "Groq (grátis)"),
-            (config.PROVIDER_GEMINI, "Gemini (Google)"),
-            (config.PROVIDER_HF, "API (Hugging Face)"),
-            (config.PROVIDER_OLLAMA, "Ollama (local)"),
-            (config.PROVIDER_PHRASES, "Frases prontas"),
+            (config.PROVIDER_AUTO, self._("menu_provider_auto")),
+            (config.PROVIDER_GROQ, self._("menu_provider_groq")),
+            (config.PROVIDER_GEMINI, self._("menu_provider_gemini")),
+            (config.PROVIDER_HF, self._("menu_provider_hf")),
+            (config.PROVIDER_OLLAMA, self._("menu_provider_ollama")),
+            (config.PROVIDER_PHRASES, self._("menu_provider_phrases")),
         ]:
             item = Gtk.RadioMenuItem.new_with_label(group_prov, label)
             if key == current:
@@ -1233,22 +1268,22 @@ class TetoPet(Gtk.Window):
             group_prov = [item]
         ai_menu.append(provider_sub)
 
-        gemini_setup = Gtk.MenuItem.new_with_label("Configurar Gemini...")
+        gemini_setup = Gtk.MenuItem.new_with_label(self._("menu_configure_gemini"))
         gemini_setup.connect("activate", lambda _: self._setup_gemini())
         ai_menu.append(gemini_setup)
 
-        groq_setup = Gtk.MenuItem.new_with_label("Configurar Groq...")
+        groq_setup = Gtk.MenuItem.new_with_label(self._("menu_configure_groq"))
         groq_setup.connect("activate", lambda _: self._setup_groq())
         ai_menu.append(groq_setup)
 
-        hf_setup = Gtk.MenuItem.new_with_label("Configurar HuggingFace...")
+        hf_setup = Gtk.MenuItem.new_with_label(self._("menu_configure_hf"))
         hf_setup.connect("activate", lambda _: self._setup_hf())
         ai_menu.append(hf_setup)
 
         ollama_models = self._list_ollama_models()
         if ollama_models:
             ollama_menu = Gtk.Menu()
-            ollama_sub = Gtk.MenuItem.new_with_label("Modelo Ollama")
+            ollama_sub = Gtk.MenuItem.new_with_label(self._("menu_ollama_model"))
             ollama_sub.set_submenu(ollama_menu)
             current_om = self.cfg.get("ollama_model", "")
             group_om = []
@@ -1264,16 +1299,16 @@ class TetoPet(Gtk.Window):
         ai_menu.append(Gtk.SeparatorMenuItem())
 
         tools_menu = Gtk.Menu()
-        tools_sub = Gtk.MenuItem.new_with_label("Permissões")
+        tools_sub = Gtk.MenuItem.new_with_label(self._("menu_permissions"))
         tools_sub.set_submenu(tools_menu)
         for key, label in [
-            ("tool_read_file", "Ler arquivos"),
-            ("tool_list_files", "Listar pastas"),
-            ("tool_run_command", "Executar comandos"),
-            ("tool_write_file", "Escrever arquivos"),
-            ("tool_screenshot", "Capturar tela"),
-            ("tool_open_url", "Abrir URLs"),
-            ("tool_listen", "Escutar sons do desktop"),
+            ("tool_read_file", self._("menu_perm_read_file")),
+            ("tool_list_files", self._("menu_perm_list_files")),
+            ("tool_run_command", self._("menu_perm_run_command")),
+            ("tool_write_file", self._("menu_perm_write_file")),
+            ("tool_screenshot", self._("menu_perm_screenshot")),
+            ("tool_open_url", self._("menu_perm_open_url")),
+            ("tool_listen", self._("menu_perm_listen")),
         ]:
             item = Gtk.CheckMenuItem.new_with_label(label)
             item.set_active(self.cfg.get(key, False))
@@ -1285,26 +1320,43 @@ class TetoPet(Gtk.Window):
 
         cfg_menu.append(Gtk.SeparatorMenuItem())
 
+        # ── 🌐  Idioma ──
+        lang_menu = Gtk.Menu()
+        lang_sub = Gtk.MenuItem.new_with_label(self._("menu_language"))
+        lang_sub.set_submenu(lang_menu)
+        current_lang = self.cfg.get("language", "pt")
+        group_lang = []
+        for lang_code, lang_label in [("pt", "Português"), ("en", "English"), ("jp", "日本語")]:
+            item = Gtk.RadioMenuItem.new_with_label(group_lang, lang_label)
+            if lang_code == current_lang:
+                item.set_active(True)
+            item.connect("activate", self._change_language, lang_code)
+            lang_menu.append(item)
+            group_lang = [item]
+        cfg_menu.append(lang_sub)
+
+        cfg_menu.append(Gtk.SeparatorMenuItem())
+
         # ── 👤  Conta ──
-        profile_item = Gtk.MenuItem.new_with_label("\U0001f464  Meu Perfil...")
+        profile_item = Gtk.MenuItem.new_with_label(self._("menu_profile"))
         profile_item.connect("activate", lambda _: self._setup_profile())
         cfg_menu.append(profile_item)
 
-        about_item = Gtk.MenuItem.new_with_label("\U00002139  Sobre")
+        about_item = Gtk.MenuItem.new_with_label(self._("menu_about"))
         about_item.connect("activate", self._show_about)
         cfg_menu.append(about_item)
 
         menu.append(cfg_sub)
 
         # ── Limpar Histórico ────────────────────────
-        clear_item = Gtk.MenuItem.new_with_label("Limpar Histórico")
+        clear_item = Gtk.MenuItem.new_with_label(self._("menu_clear_history"))
         clear_item.connect("activate", self._clear_history)
         menu.append(clear_item)
 
         menu.append(Gtk.SeparatorMenuItem())
 
         # ── Sair ───────────────────────────────────
-        quit_item = Gtk.MenuItem.new_with_label("Sair")
+        quit_item = Gtk.MenuItem.new_with_label(self._("menu_quit"))
         quit_item.connect("activate", lambda _: self._on_destroy())
         menu.append(quit_item)
 
@@ -1322,6 +1374,7 @@ class TetoPet(Gtk.Window):
 
         self.chat_window.connect("teto-speech", self._on_chat_speech)
         self.chat_window.connect("alarm-command", self._alarm_stop_from_chat)
+        self.chat_window.connect("tts-speak", self._on_chat_tts)
         self.chat_window.connect("key-press-event", self._on_key_press)
         self.chat_window.connect("key-release-event", self._on_key_release)
         self.chat_window.entry.connect("key-press-event", self._on_key_press)
@@ -1335,6 +1388,24 @@ class TetoPet(Gtk.Window):
         self.show_speech(self._strip_tool(text))
         self._alarm_stop_from_chat(_win, text, mood)
 
+    def _on_chat_tts(self, _win, text):
+        if not self.cfg.get("tts_enabled", False):
+            return
+        voice_config = dict(getattr(model, "TTS_VOICE", {}))
+        if not voice_config:
+            return
+        fish_voice = self.cfg.get("fish_audio_voice", "")
+        if fish_voice:
+            voice_config["fish_audio"] = fish_voice
+        provider = self.cfg.get("tts_provider", "auto")
+        api_key = self.cfg.get("fish_audio_key", "") or None
+        device = self.cfg.get("tts_device", "") or None
+        threading.Thread(
+            target=tts_mod.speak,
+            args=(text, provider, voice_config, api_key, device),
+            daemon=True,
+        ).start()
+
     def _on_chat_closed(self, _w=None):
         self.chat_window = None
 
@@ -1347,7 +1418,7 @@ class TetoPet(Gtk.Window):
                 os.remove(path)
             except OSError:
                 pass
-        self.show_speech("Histórico limpo! ^_^", 3)
+        self.show_speech(self._("history_cleared"), 3)
 
     # ─── Configurações diversas ───────────────────────
 
@@ -1364,6 +1435,112 @@ class TetoPet(Gtk.Window):
         self.cfg["mic_stt_enabled"] = item.get_active()
         config.save(self.cfg)
         self._start_mic_listener()
+
+    def _toggle_tts(self, item):
+        self.cfg["tts_enabled"] = item.get_active()
+        config.save(self.cfg)
+
+    def _change_tts_provider(self, item, provider):
+        if not item.get_active():
+            return
+        self.cfg["tts_provider"] = provider
+        config.save(self.cfg)
+
+    def _setup_tts_device(self, _item=None):
+        devices = tts_mod.list_audio_devices()
+        if not devices:
+            self.show_speech(self._("no_tts_device"), 3)
+            return
+        current = self.cfg.get("tts_device", "")
+        dialog = Gtk.Dialog(
+            title=self._("tts_device_title"),
+            transient_for=self, flags=0,
+        )
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
+        dialog.set_default_size(400, 250)
+        area = dialog.get_content_area()
+        area.set_margin_start(12); area.set_margin_end(12)
+        area.set_margin_top(12); area.set_margin_bottom(12)
+        lbl = Gtk.Label(label=self._("tts_device_label"))
+        lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
+        store = Gtk.ListStore(str, str)
+        combo = Gtk.ComboBox.new_with_model(store)
+        renderer = Gtk.CellRendererText()
+        combo.pack_start(renderer, True)
+        combo.add_attribute(renderer, "text", 1)
+        idx = 0
+        for i, d in enumerate(devices):
+            store.append([d["id"], d["description"]])
+            if d["id"] == current:
+                idx = i
+        combo.set_active(idx)
+        area.pack_start(combo, False, False, 4)
+        area.show_all()
+        if dialog.run() == Gtk.ResponseType.OK:
+            active_iter = combo.get_active_iter()
+            if active_iter is not None:
+                device_id = store[active_iter][0]
+                self.cfg["tts_device"] = device_id
+                config.save(self.cfg)
+        dialog.destroy()
+
+    def _setup_fish_audio(self, _item=None):
+        dialog = Gtk.Dialog(
+            title=self._("fish_setup_title"),
+            transient_for=self, flags=0,
+        )
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_save"), Gtk.ResponseType.OK)
+        dialog.set_default_size(420, 240)
+        area = dialog.get_content_area()
+        area.set_margin_start(12); area.set_margin_end(12)
+        area.set_margin_top(12); area.set_margin_bottom(12)
+
+        lbl = Gtk.Label()
+        lbl.set_markup(
+            "<b>Fish Audio</b>\n\n"
+            "Vozes de IA realistas para seu pet.\n\n"
+            "1. Crie uma conta em <a href=\"https://fish.audio/app/api-keys\">fish.audio</a>\n"
+            "2. Vá em <b>API Keys</b> e crie uma chave\n"
+            "3. Copie a chave e cole abaixo\n\n"
+            "Voice ID (opcional): Se o modelo tiver uma\n"
+            "voz definida em model.py, ela aparece aqui.\n"
+            "Deixe vazio para usar a voz padrão."
+        )
+        lbl.set_line_wrap(True); lbl.set_xalign(0)
+        area.pack_start(lbl, False, False, 6)
+
+        key_entry = Gtk.Entry()
+        key_entry.set_placeholder_text(self._("fish_key_placeholder"))
+        key_entry.set_text(self.cfg.get("fish_audio_key", ""))
+        key_entry.set_visibility(False)
+        area.pack_start(key_entry, False, False, 6)
+
+        current_voice = self.cfg.get("fish_audio_voice", "")
+        model_voice = getattr(model, "TTS_VOICE", {}).get("fish_audio", "")
+        voice_entry = Gtk.Entry()
+        placeholder = model_voice or self._("fish_voice_placeholder")
+        voice_entry.set_placeholder_text(placeholder)
+        voice_entry.set_text(current_voice)
+        area.pack_start(voice_entry, False, False, 6)
+
+        link_btn = Gtk.LinkButton.new_with_label(
+            "https://fish.audio/app/api-keys",
+            "Abrir página de API Keys",
+        )
+        area.pack_start(link_btn, False, False, 6)
+
+        area.show_all()
+        if dialog.run() == Gtk.ResponseType.OK:
+            key = key_entry.get_text().strip()
+            voice = voice_entry.get_text().strip()
+            if key:
+                self.cfg["fish_audio_key"] = key
+                self.cfg["fish_audio_voice"] = voice
+                config.save(self.cfg)
+                self.show_speech(self._("fish_configured"))
+            else:
+                self.show_speech(self._("fish_no_key"))
+        dialog.destroy()
 
     def _change_mic_stt_mode(self, item, mode):
         if item.get_active():
@@ -1405,8 +1582,19 @@ class TetoPet(Gtk.Window):
                 return
             text = ai.transcribe(wav)
             if text and re.search(r'[a-zA-Záéíóúâêîôûãõçàèìòùäëïöüñ]', text):
+                text = text.strip()
+                # Ignora transcrições muito curtas (geralmente ruído/alucinação)
+                words = text.split()
+                if len(words) < 2:
+                    log("STT contínuo: ignorado (poucas palavras): %s", text)
+                    return
+                # Ignora texto repetido (alucinação do Whisper com ruído)
+                if text == getattr(self, '_last_stt_text', ''):
+                    log("STT contínuo: ignorado (repetido): %s", text)
+                    return
+                self._last_stt_text = text
                 log("STT contínuo: %s", text)
-                GLib.idle_add(self._handle_mic_speech, text.strip())
+                GLib.idle_add(self._handle_mic_speech, text)
         finally:
             self._mic_listening = False
 
@@ -1425,6 +1613,7 @@ class TetoPet(Gtk.Window):
 
         self.chat_window.connect("teto-speech", self._on_chat_speech)
         self.chat_window.connect("alarm-command", self._alarm_stop_from_chat)
+        self.chat_window.connect("tts-speak", self._on_chat_tts)
         self.chat_window.connect("key-press-event", self._on_key_press)
         self.chat_window.connect("key-release-event", self._on_key_release)
         self.chat_window.entry.connect("key-press-event", self._on_key_press)
@@ -1597,27 +1786,16 @@ c.close()
 
     def _show_global_shortcut_help(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Atalho Global (Win+V)",
+            title=self._("global_shortcut_title"),
             transient_for=self, flags=0,
         )
-        dialog.add_buttons("Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(480, 300)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
         lbl = Gtk.Label()
-        lbl.set_markup(
-            "<b>Atalho Global: Win + V</b>\n\n"
-            "O atalho <b>Win+V</b> permite usar o pressionar pra falar "
-            "de qualquer lugar da tela, mesmo com o app sem foco.\n\n"
-            "Para funcionar, adicione esta linha ao seu\n"
-            "arquivo de atalhos do compositor:\n\n"
-            f'<tt><span size="smaller">Mod+V  {{ spawn-sh "bash {self._ptt_helper_path} toggle"; }}</span></tt>\n\n'
-            f"Ou execute manualmente:\n"
-            f'<tt><span size="smaller">bash {self._ptt_helper_path} press   # inicia gravação\n'
-            f'bash {self._ptt_helper_path} release # para gravação\n'
-            f'bash {self._ptt_helper_path} toggle  # alterna liga/desliga</span></tt>'
-        )
+        lbl.set_markup(self._("global_shortcut_markup", path=self._ptt_helper_path))
         lbl.set_line_wrap(True); lbl.set_xalign(0)
         area.pack_start(lbl, False, False, 6)
         area.show_all()
@@ -1626,32 +1804,24 @@ c.close()
 
     def _setup_stt_shortcut(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Atalho do Microfone",
+            title=self._("stt_shortcut_title"),
             transient_for=self, flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(320, 150)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
         lbl = Gtk.Label()
         current = self.cfg.get("stt_shortcut", "V")
-        lbl.set_markup(
-            "<b>Atalho para Pressionar pra Falar</b>\n\n"
-            "Essa tecla funciona quando o app está em foco.\n"
-            "Use <b>Win+V</b> (atalho global) para funcionar\n"
-            "de qualquer lugar da tela.\n\n"
-            "Pressione a tecla desejada no campo abaixo.\n"
-            "Segure para gravar, solte para transcrever.\n\n"
-            f"Atual: <b>{current}</b>"
-        )
+        lbl.set_markup(self._("stt_shortcut_markup", current=current))
         lbl.set_line_wrap(True); lbl.set_xalign(0)
         area.pack_start(lbl, False, False, 6)
         entry = Gtk.Entry()
         entry.set_text(current)
         entry.set_max_length(1)
         entry.set_width_chars(5)
-        entry.set_placeholder_text("Pressione uma tecla")
+        entry.set_placeholder_text(self._("stt_shortcut_placeholder"))
         entry.connect("key-press-event", lambda w, e: (
             w.set_text(Gdk.keyval_name(e.keyval).upper()),
             True,
@@ -1668,15 +1838,15 @@ c.close()
 
     def _setup_window_scale(self, _item=None):
         dialog = Gtk.Dialog(
-            title="Tamanho da Janela",
+            title=self._("window_scale_title"),
             transient_for=self, flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(350, 150)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="Ajuste o tamanho da janela do pet:")
+        lbl = Gtk.Label(label=self._("window_scale_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         adj = Gtk.Adjustment(
             value=self.cfg.get("window_scale", 5),
@@ -1686,7 +1856,7 @@ c.close()
         scale.set_digits(0)
         scale.set_hexpand(True)
         scale.set_value_pos(Gtk.PositionType.BOTTOM)
-        scale.add_mark(5, Gtk.PositionType.BOTTOM, "Padrão")
+        scale.add_mark(5, Gtk.PositionType.BOTTOM, self._("window_scale_default_mark"))
         area.pack_start(scale, False, False, 6)
         area.show_all()
         if dialog.run() == Gtk.ResponseType.OK:
@@ -1711,19 +1881,19 @@ c.close()
     def _setup_mic_device(self, _item=None):
         mics = list_mic_sources()
         if not mics:
-            self.show_speech("Nenhum microfone encontrado!", 3)
+            self.show_speech(self._("no_mic_found"), 3)
             return
         current = self.cfg.get("mic_stt_device", "")
         dialog = Gtk.Dialog(
-            title="Dispositivo do Microfone",
+            title=self._("mic_device_title"),
             transient_for=self, flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Ok", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_ok"), Gtk.ResponseType.OK)
         dialog.set_default_size(350, 200)
         area = dialog.get_content_area()
         area.set_margin_start(12); area.set_margin_end(12)
         area.set_margin_top(12); area.set_margin_bottom(12)
-        lbl = Gtk.Label(label="Escolha o dispositivo de entrada:")
+        lbl = Gtk.Label(label=self._("mic_device_label"))
         lbl.set_xalign(0); area.pack_start(lbl, False, False, 6)
         store = Gtk.ListStore(str)
         combo = Gtk.ComboBox.new_with_model(store)
@@ -1745,7 +1915,7 @@ c.close()
                 self.cfg["mic_stt_device"] = device
                 self.cfg["mic_stt_enabled"] = True
                 config.save(self.cfg)
-                self.show_speech("Microfone configurado! ^_^", 3)
+                self.show_speech(self._("mic_configured"), 3)
         dialog.destroy()
 
     def _change_bubble_side(self, item, side):
@@ -1754,12 +1924,20 @@ c.close()
             config.save(self.cfg)
             self.da.queue_draw()
 
+    def _change_language(self, item, lang_code):
+        if not item.get_active():
+            return
+        self.cfg["language"] = lang_code
+        config.save(self.cfg)
+        self.show_speech("OK! ^_^")
+        GLib.timeout_add(1500, self._restart)
+
     def _change_model(self, item, model_name):
         if not item.get_active():
             return
         self.cfg["active_model"] = model_name
         config.save(self.cfg)
-        self.show_speech(f"Reiniciando pra carregar {model_name.replace('_', ' ').title()}...")
+        self.show_speech(self._("restarting_model", model=model_name.replace("_", " ").title()))
         GLib.timeout_add(1500, self._restart)
 
     def _restart(self):
@@ -1775,11 +1953,11 @@ c.close()
 
     def _setup_gemini(self):
         dialog = Gtk.Dialog(
-            title="Configurar Gemini",
+            title=self._("gemini_setup_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Salvar", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_save"), Gtk.ResponseType.OK)
         dialog.set_default_size(400, 200)
 
         area = dialog.get_content_area()
@@ -1789,27 +1967,20 @@ c.close()
         area.set_margin_bottom(12)
 
         lbl = Gtk.Label()
-        lbl.set_markup(
-            "<b>Gemini API Key</b>\n\n"
-            "O Gemini tem um plano gratuito generoso (60 req/min).\n\n"
-            "1. Acesse: https://aistudio.google.com/apikey\n"
-            "2. Clique em \"Criar chave de API\"\n"
-            "3. Copie a chave e cole abaixo\n\n"
-            "Não precisa de cartão de crédito."
-        )
+        lbl.set_markup(self._("gemini_markup"))
         lbl.set_line_wrap(True)
         lbl.set_xalign(0)
         area.pack_start(lbl, False, False, 6)
 
         entry = Gtk.Entry()
-        entry.set_placeholder_text("Cole sua chave Gemini aqui...")
+        entry.set_placeholder_text(self._("gemini_entry_placeholder"))
         entry.set_text(self.cfg.get("gemini_key", ""))
         entry.set_visibility(False)
         area.pack_start(entry, False, False, 6)
 
         link_btn = Gtk.LinkButton.new_with_label(
             "https://aistudio.google.com/apikey",
-            "Abrir Google AI Studio",
+            self._("gemini_link_label"),
         )
         area.pack_start(link_btn, False, False, 6)
 
@@ -1820,18 +1991,18 @@ c.close()
             if key:
                 self.cfg["gemini_key"] = key
                 config.save(self.cfg)
-                self.show_speech("Gemini configurado! Vou usar IA do Google! ^_^")
+                self.show_speech(self._("gemini_configured"))
             else:
-                self.show_speech("Não colou nenhuma chave... Tenta de novo!")
+                self.show_speech(self._("gemini_no_key"))
         dialog.destroy()
 
     def _setup_groq(self):
         dialog = Gtk.Dialog(
-            title="Configurar Groq",
+            title=self._("groq_setup_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Salvar", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_save"), Gtk.ResponseType.OK)
         dialog.set_default_size(400, 220)
 
         area = dialog.get_content_area()
@@ -1841,28 +2012,20 @@ c.close()
         area.set_margin_bottom(12)
 
         lbl = Gtk.Label()
-        lbl.set_markup(
-            "<b>Groq API Key</b>\n\n"
-            "Groq é 100% gratuito e MUITO rápido!\n"
-            "Usa GPU própria (LPU) pra rodar Llama 3, Gemma e Mixtral.\n\n"
-            "1. Acesse: https://console.groq.com/keys\n"
-            "2. Clique em \"Create API Key\"\n"
-            "3. Copie a chave e cole abaixo\n\n"
-            "Não precisa de cartão de crédito. ~600 req/dia grátis!"
-        )
+        lbl.set_markup(self._("groq_markup"))
         lbl.set_line_wrap(True)
         lbl.set_xalign(0)
         area.pack_start(lbl, False, False, 6)
 
         entry = Gtk.Entry()
-        entry.set_placeholder_text("Cole sua chave Groq aqui...")
+        entry.set_placeholder_text(self._("groq_entry_placeholder"))
         entry.set_text(self.cfg.get("groq_key", ""))
         entry.set_visibility(False)
         area.pack_start(entry, False, False, 6)
 
         link_btn = Gtk.LinkButton.new_with_label(
             "https://console.groq.com/keys",
-            "Abrir Groq Console",
+            self._("groq_link_label"),
         )
         area.pack_start(link_btn, False, False, 6)
 
@@ -1873,18 +2036,18 @@ c.close()
             if key:
                 self.cfg["groq_key"] = key
                 config.save(self.cfg)
-                self.show_speech("Groq configurado! Vou usar a IA mais rápida! ^_^")
+                self.show_speech(self._("groq_configured"))
             else:
-                self.show_speech("Não colou nenhuma chave... Tenta de novo!")
+                self.show_speech(self._("groq_no_key"))
         dialog.destroy()
 
     def _setup_hf(self):
         dialog = Gtk.Dialog(
-            title="Configurar HuggingFace",
+            title=self._("hf_setup_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Salvar", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_save"), Gtk.ResponseType.OK)
         dialog.set_default_size(400, 220)
 
         area = dialog.get_content_area()
@@ -1894,29 +2057,20 @@ c.close()
         area.set_margin_bottom(12)
 
         lbl = Gtk.Label()
-        lbl.set_markup(
-            "<b>HuggingFace API Token</b>\n\n"
-            "HuggingFace oferece inferência grátis com token!\n"
-            "Use modelos como DialoGPT para conversar.\n\n"
-            "1. Acesse: https://huggingface.co/settings/tokens\n"
-            "2. Clique em \"New token\"\n"
-            "3. Escolha permissão \"read\" e copie o token\n"
-            "4. Cole abaixo\n\n"
-            "Gratuito, sem cartão de crédito!"
-        )
+        lbl.set_markup(self._("hf_markup"))
         lbl.set_line_wrap(True)
         lbl.set_xalign(0)
         area.pack_start(lbl, False, False, 6)
 
         entry = Gtk.Entry()
-        entry.set_placeholder_text("Cole seu token HuggingFace aqui...")
+        entry.set_placeholder_text(self._("hf_entry_placeholder"))
         entry.set_text(self.cfg.get("hf_token", ""))
         entry.set_visibility(False)
         area.pack_start(entry, False, False, 6)
 
         link_btn = Gtk.LinkButton.new_with_label(
             "https://huggingface.co/settings/tokens",
-            "Abrir HuggingFace Tokens",
+            self._("hf_link_label"),
         )
         area.pack_start(link_btn, False, False, 6)
 
@@ -1927,9 +2081,9 @@ c.close()
             if token:
                 self.cfg["hf_token"] = token
                 config.save(self.cfg)
-                self.show_speech("HuggingFace configurado! Agora vou usar a IA da comunidade! ^_^")
+                self.show_speech(self._("hf_configured"))
             else:
-                self.show_speech("Não colou nenhum token... Tenta de novo!")
+                self.show_speech(self._("hf_no_token"))
         dialog.destroy()
 
     def _list_ollama_models(self):
@@ -1959,11 +2113,11 @@ c.close()
 
     def _setup_profile(self):
         dialog = Gtk.Dialog(
-            title="Meu Perfil",
+            title=self._("profile_title"),
             transient_for=self,
             flags=0,
         )
-        dialog.add_buttons("Cancelar", Gtk.ResponseType.CANCEL, "Salvar", Gtk.ResponseType.OK)
+        dialog.add_buttons(self._("btn_cancel"), Gtk.ResponseType.CANCEL, self._("btn_save"), Gtk.ResponseType.OK)
         dialog.set_default_size(360, 260)
 
         area = dialog.get_content_area()
@@ -1973,28 +2127,26 @@ c.close()
         area.set_margin_bottom(12)
 
         lbl = Gtk.Label()
-        lbl.set_markup("<b>Como a IA deve te tratar</b>\n\n"
-                       "Esses dados são salvos localmente e usados\n"
-                       "apenas para a IA te conhecer melhor.")
+        lbl.set_markup(self._("profile_markup"))
         lbl.set_line_wrap(True)
         lbl.set_xalign(0)
         area.pack_start(lbl, False, False, 6)
 
-        name_lbl = Gtk.Label(label="Seu nome:")
+        name_lbl = Gtk.Label(label=self._("profile_name_label"))
         name_lbl.set_xalign(0)
         area.pack_start(name_lbl, False, False, 2)
 
         name_entry = Gtk.Entry()
-        name_entry.set_placeholder_text("Ex: João, Maria...")
+        name_entry.set_placeholder_text(self._("profile_name_placeholder"))
         name_entry.set_text(self.cfg.get("user_name", ""))
         area.pack_start(name_entry, False, False, 4)
 
-        bio_lbl = Gtk.Label(label="Detalhes extras (opcional):")
+        bio_lbl = Gtk.Label(label=self._("profile_bio_label"))
         bio_lbl.set_xalign(0)
         area.pack_start(bio_lbl, False, False, 2)
 
         bio_entry = Gtk.Entry()
-        bio_entry.set_placeholder_text("Ex: pronomes, idade, apelido...")
+        bio_entry.set_placeholder_text(self._("profile_bio_placeholder"))
         bio_entry.set_text(self.cfg.get("user_bio", ""))
         area.pack_start(bio_entry, False, False, 4)
 
@@ -2007,16 +2159,16 @@ c.close()
             self.cfg["user_bio"] = bio
             config.save(self.cfg)
             if name:
-                self.show_speech(f"Anotado! Vou te chamar de {name} agora! ^_^")
+                self.show_speech(self._("profile_saved_name", name=name))
             else:
-                self.show_speech("Perfil atualizado! ^_^")
+                self.show_speech(self._("profile_saved"))
         dialog.destroy()
 
     def _show_about(self, _item=None):
         about = Gtk.AboutDialog()
         about.set_program_name("Mate Helper")
         about.set_version("0.1.0")
-        about.set_comments("Um pet virtual da Kasane Teto")
+        about.set_comments(self._("about_comments"))
         about.set_copyright("MCookinho")
         about.set_license("MIT")
         about.set_transient_for(self)

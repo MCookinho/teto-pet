@@ -3,18 +3,26 @@ import os
 MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_ID = "white_guy"
 
-# ── Pet identity ──────────────────────────────────────────
+# ── Identity ──
 PET_NAME = "Computador"
 PET_SHORT_NAME = "PC"
 
 from . import phrases as _phrases
 phrases = _phrases
 
-# ── Sprite configuration ──────────────────────────────────
-SPRITES_DIR = os.path.join(MODEL_DIR, "sprites")
+# ── TTS Voice ──
+# Voice IDs for each provider.
+#  fish_audio: leave empty; user sets via menu
+#  edge_tts  : Microsoft Edge TTS voice name
+#  pyttsx3   : espeak voice identifier
+TTS_VOICE = {
+    "fish_audio": "",
+    "edge_tts": "pt-BR-AntonioNeural",
+    "pyttsx3": "brazil+m2",
+}
 
-# Mood → filename mapping (empty variant = not speaking)
-# Files must exist as {name}.png and {name}Speaking.png
+# ── Sprites ──
+SPRITES_DIR = os.path.join(MODEL_DIR, "sprites")
 SPRITE_NAMES = {
     "Normal": "Default",
     "Feliz": "Happy",
@@ -23,24 +31,21 @@ SPRITE_NAMES = {
     "Dança": "Dancing",
 }
 
-# ── Ringtone ────────────────────────────────────────────
+# ── Ringtone ──
 RINGTONE_PATH = os.path.join(MODEL_DIR, "ringtone.mp3")
 
-# ── Font (must be installed on the system or in Model/) ──
+# ── Font ──
 FONT_NAME = "Pixelify Sans"
 FONT_SIZE = 13
 
-# ── AI system prompt ──────────────────────────────────────
+# ── AI System Prompt ──
 SYSTEM_PROMPT = (
     f"Você é {PET_NAME}, algo que sempre vai direto ao ponto"
     "Sempre tenta ajudar da melhor maneira possível, seu foco é performace e qualidade"
     "Sempre quando der, se não atrapalhar o contexto, seja direto ao ponto"
 )
 
-# ── Prompts de acessibilidade ────────────────────────────
-# Usados quando o pet age por conta própria (leitura de tela, áudio).
-# {transcribed} é substituído pelo texto transcrito do áudio.
-
+# ── Accessibility Prompts ──
 ACCESSIBILITY_SCREEN_PROMPT = (
     "Olhe a tela e diga o que está aparecendo"
     "Preciso que me dê o maximo de detalhes possível, pra eu saber tudo sem me preocupar"
@@ -55,7 +60,7 @@ ACCESSIBILITY_AUDIO_PROMPT = (
     "Caso seja uma chamada de audio, transcreva o audio da ligação"
 )
 
-# ── Tarefas de acessibilidade ──────────────────────────
+# ── Accessibility Tasks ──
 ACCESSIBILITY_TASKS = {
     "screen": [
         {

@@ -3,18 +3,26 @@ import os
 MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_ID = "kasane_teto"
 
-# ── Pet identity ──────────────────────────────────────────
+# ── Identity ──
 PET_NAME = "Kasane Teto"
 PET_SHORT_NAME = "Teto"
 
 from . import phrases as _phrases
 phrases = _phrases
 
-# ── Sprite configuration ──────────────────────────────────
-SPRITES_DIR = os.path.join(MODEL_DIR, "sprites")
+# ── TTS Voice ──
+# Voice IDs for each provider.
+#  fish_audio: leave empty; user sets via menu
+#  edge_tts  : Microsoft Edge TTS voice name
+#  pyttsx3   : espeak voice identifier
+TTS_VOICE = {
+    "fish_audio": "",
+    "edge_tts": "pt-BR-FranciscaNeural",
+    "pyttsx3": "brazil",
+}
 
-# Mood → filename mapping (empty variant = not speaking)
-# Files must exist as {name}.png and {name}Speaking.png
+# ── Sprites ──
+SPRITES_DIR = os.path.join(MODEL_DIR, "sprites")
 SPRITE_NAMES = {
     "Normal": "Default",
     "Feliz": "Happy",
@@ -23,14 +31,14 @@ SPRITE_NAMES = {
     "Dança": "Dancing",
 }
 
-# ── Ringtone ────────────────────────────────────────────
+# ── Ringtone ──
 RINGTONE_PATH = os.path.join(MODEL_DIR, "ringtone.mp3")
 
-# ── Font (must be installed on the system or in Model/) ──
+# ── Font ──
 FONT_NAME = "Pixelify Sans"
 FONT_SIZE = 13
 
-# ── AI system prompt ──────────────────────────────────────
+# ── AI System Prompt ──
 SYSTEM_PROMPT = (
     f"Você é {PET_NAME}, uma UTAUloid de cabelo ruivo com twin drills. "
     "Você é enérgica, brincalhona e carinhosa. "
@@ -40,10 +48,7 @@ SYSTEM_PROMPT = (
     "Exemplo de resposta: 'Oii! ^_^ Tô aqui!' ao invés de 'Olá! Como posso ajudar?'"
 )
 
-# ── Prompts de acessibilidade ────────────────────────────
-# Usados quando o pet age por conta própria (leitura de tela, áudio).
-# {transcribed} é substituído pelo texto transcrito do áudio.
-
+# ── Accessibility Prompts ──
 ACCESSIBILITY_SCREEN_PROMPT = (
     "De uma olhada rápida na tela do usuário e comente por conta própria "
     "algo que te chamou atenção, como se tivesse visto algo interessante "
@@ -58,15 +63,7 @@ ACCESSIBILITY_AUDIO_PROMPT = (
     "sem dar a entender que te pediram pra comentar."
 )
 
-# ── Tarefas de acessibilidade ──────────────────────────
-# Cada task tem:
-#   prompt  – texto enviado à IA (para "speech" é ignorado)
-#   mode    – "aleatorio" ou "exato"
-#   min_interval / max_interval  – para modo aleatório
-#   exact_interval               – para modo exato
-# Quando o menu marca "Padrão do Modelo", estas tasks
-# substituem a configuração manual do usuário.
-
+# ── Accessibility Tasks ──
 ACCESSIBILITY_TASKS = {
     "screen": [
         {

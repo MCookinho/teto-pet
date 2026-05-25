@@ -240,6 +240,18 @@ def listen_mic(device=None, duration=5, stop_event=None):
         if not os.path.exists(raw.name) or os.path.getsize(raw.name) < 100:
             os.unlink(raw.name)
             return "Erro: áudio muito curto"
+        # Detecta silêncio — evita enviar ruído ambiente pro Whisper
+        try:
+            data = open(raw.name, "rb").read()
+            samples = array.array('h')
+            samples.frombytes(data[:200000])
+            if samples:
+                rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
+                if rms < 100:
+                    os.unlink(raw.name)
+                    return "Erro: áudio muito baixo (silêncio)"
+        except Exception:
+            pass
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.close()
         ret = subprocess.run(

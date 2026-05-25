@@ -13,6 +13,13 @@ PROVIDER_PHRASES = "phrases"
 
 PROVIDERS = [PROVIDER_AUTO, PROVIDER_OLLAMA, PROVIDER_HF, PROVIDER_GEMINI, PROVIDER_GROQ, PROVIDER_PHRASES]
 
+TTS_PROVIDER_AUTO = "auto"
+TTS_PROVIDER_FISH = "fish_audio"
+TTS_PROVIDER_EDGE = "edge_tts"
+TTS_PROVIDER_PYTTS = "pyttsx3"
+
+TTS_PROVIDERS = [TTS_PROVIDER_AUTO, TTS_PROVIDER_FISH, TTS_PROVIDER_EDGE, TTS_PROVIDER_PYTTS]
+
 BUBBLE_AUTO = "auto"
 BUBBLE_LEFT = "left"
 BUBBLE_RIGHT = "right"
@@ -64,6 +71,11 @@ DEFAULT_CONFIG = {
     "stt_shortcut": "V",
     "window_scale": 5,
     "accessibility_use_model_defaults": False,
+    "tts_enabled": False,
+    "tts_provider": TTS_PROVIDER_AUTO,
+    "tts_device": "",
+    "fish_audio_key": "",
+    "fish_audio_voice": "",
     "alarms": [
         {"hour": 8, "minute": 0, "enabled": False, "name": ""},
     ],
