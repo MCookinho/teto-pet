@@ -28,7 +28,6 @@ FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu",
     "/usr/local/share/fonts",
     os.path.expanduser("~/.fonts"),
-    "C:/Windows/Fonts",
 ]
 FONT_DIR = None
 for d in FONT_CANDIDATES:
@@ -267,7 +266,7 @@ def build():
     pdf.chapter_heading("1  Introduction")
 
     pdf.body(
-        "Mate Helper is a multi-platform desktop application  -  available for Linux and Windows  -  that brings an animated, AI-powered virtual pet to your screen. "
+        "Mate Helper is a Linux desktop application that brings an animated, AI-powered virtual pet to your screen. "
         "The pet character walks, dances, reacts emotionally, and interacts with you through speech bubbles, "
         "a text chat window, and voice commands. It can converse using multiple AI providers, "
         "execute real computer commands, describe what is happening on your screen, transcribe desktop audio, "
@@ -317,18 +316,16 @@ def build():
     pdf.chapter_heading("2  Getting Started")
 
     pdf.section_heading("System Requirements")
-    pdf.bullet("Linux (X11/Wayland) or Windows operating system")
+    pdf.bullet("Linux operating system with X11 or Wayland display server")
     pdf.bullet("Python 3.10 or newer")
     pdf.bullet("GTK 3.0 runtime libraries with Cairo and Pango support")
-    pdf.bullet("PulseAudio (Linux) or WASAPI (Windows) for microphone and desktop audio")
+    pdf.bullet("PulseAudio sound server (for microphone and desktop audio capture)")
     pdf.bullet("ffmpeg (for audio format conversion)")
     pdf.bullet("Internet connection (for cloud AI providers and TTS services); Ollama mode works offline")
     pdf.bullet("Optional: Ollama for fully local AI inference")
 
     pdf.section_heading("Quick Start")
-    pdf.body("1. Install system dependencies: GTK 3, Cairo, Pango, ffmpeg, and Python 3 development headers.")
-    pdf.body("   - Linux: apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 libpulse0 ffmpeg")
-    pdf.body("   - Windows: install MSYS2 with mingw-w64-ucrt-x86_64-gtk3 and related packages")
+    pdf.body("1. Install system dependencies: GTK 3, Cairo, Pango, PulseAudio, ffmpeg, and Python 3 development headers.")
     pdf.body("2. Install Python packages: PyGObject, Pycairo, Pillow, requests, and any desired AI provider SDKs.")
     pdf.body("3. Clone or copy the application to your system.")
     pdf.body("4. Run the application: python3 desktop_pet/main.py")
@@ -338,7 +335,7 @@ def build():
     pdf.section_heading("First-Time Configuration")
     pdf.body(
         "On first launch, the application creates a configuration file at ~/.config/mate-helper/config.json "
-        "(Linux) or %%APPDATA%%/mate-helper/config.json (Windows) with sensible defaults. The pet appears in the "
+        "with sensible defaults. The pet appears in the "
         "center of your screen with a default character model. From the context menu, you can:"
     )
     pdf.bullet("Select an AI provider and enter API keys (for cloud services)")
@@ -740,7 +737,7 @@ def build():
 
     pdf.section_heading("pyttsx3", 3)
     pdf.body(
-        "pyttsx3 provides offline TTS by wrapping espeak (Linux) or SAPI5 (Windows) speech engines. While voice quality "
+        "pyttsx3 provides offline TTS by wrapping espeak on Linux systems. While voice quality "
         "is lower than cloud alternatives, it works without internet access and requires no "
         "API keys or configuration. This is the ultimate fallback when cloud services are unavailable."
     )
@@ -1269,8 +1266,8 @@ def build():
         ("Model", "A character definition package containing identity, sprites, personality prompt, phrases, UI strings, and TTS voice configuration."),
         ("Ollama", "A local AI inference engine that runs large language models on the user's own machine without requiring internet access."),
         ("Pango", "A text layout engine used for rendering speech bubble text with word wrapping, custom fonts, and international character support."),
-        ("PulseAudio / WASAPI", "PulseAudio (Linux) or WASAPI (Windows) handles microphone capture, desktop audio, and TTS output.  On Windows, PyAudio provides the audio interface."),
-        ("pyttsx3", "An offline text-to-speech library  -  wraps espeak on Linux, SAPI5 on Windows."),
+        ("PulseAudio", "The Linux sound server used for capturing microphone input, desktop audio, and managing TTS audio output."),
+        ("pyttsx3", "An offline text-to-speech library that wraps espeak on Linux. Provides TTS without internet access, though with lower voice quality."),
         ("STT", "Speech-to-Text  -  the process of converting spoken audio into text using automatic speech recognition (Whisper)."),
         ("TTS", "Text-to-Speech  -  the process of converting written text into spoken audio using voice synthesis."),
         ("VAD", "Voice Activity Detection  -  an algorithm that determines whether a segment of audio contains human speech, used to filter out background noise."),
