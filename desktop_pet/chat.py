@@ -1,3 +1,17 @@
+"""
+Chat interface window for the desktop pet companion.
+
+Provides a full conversation UI with:
+- Chat bubble display with message history persistence
+- Text entry and send functionality
+- Tool execution based on natural language commands (open URLs, screenshot,
+  file operations, system info queries, desktop audio listening)
+- Speech-to-text via microphone button (STT with Groq API integration)
+- AI provider integration for conversational replies and tool-mediated
+  responses
+- Automatic mood detection from user and assistant message content
+"""
+
 import os
 import json
 import html
@@ -11,17 +25,22 @@ from desktop_pet import ai, config
 from desktop_pet.log import log
 from desktop_pet.character import Mood
 from desktop_pet.models import model
-from desktop_pet.tools import TOOLS, TOOL_KEYWORDS, screenshot as _screenshot_fn, listen as _listen_fn, listen_mic, list_mic_sources
+from desktop_pet.tools import TOOLS, screenshot as _screenshot_fn, listen as _listen_fn, listen_mic
 
 HISTORY_DIR = os.path.expanduser("~/.config/teto-pet/history")
 MAX_HISTORY = 50
 
 
+# ── History Management ──
+
+
 def _history_path():
+    """Return the filesystem path for the current model's history JSON file."""
     return os.path.join(HISTORY_DIR, f"{model.MODEL_ID}.json")
 
 
 def _save_history(history):
+    """Persist the conversation history to disk, keeping only the last MAX_HISTORY entries."""
     try:
         os.makedirs(HISTORY_DIR, exist_ok=True)
         with open(_history_path(), "w", encoding="utf-8") as f:
@@ -31,6 +50,7 @@ def _save_history(history):
 
 
 def _load_history():
+    """Load conversation history from disk, returning an empty list on failure."""
     try:
         with open(_history_path(), "r", encoding="utf-8") as f:
             return json.load(f)
@@ -38,8 +58,24 @@ def _load_history():
         return []
 
 
+# ── Mood Detection ──
+
+
 def _detect_mood(text):
+    """
+    Infer character mood from message content using keyword and pattern matching.
+
+    Checks for explicit insults (complex multi-clause regex), then falls back
+    on keyword sets for triste/raiva/feliz. Returns Mood.NORMAL when no
+    sentiment is detected.
+    """
     lower = text.lower()
+    # Multi-pattern regex matching insults or dismissal commands:
+    #   "te odeio/detesto/... de ...",
+    #   "teto é ...",
+    #   "você é (muito) (chata|ruim|horrivel|...)",
+    #   "(que) chata que você é",
+    #   "cala a boca / some daqui / desliga / fecha essa janela"
     if re.search(
         r'(?:te\s+(?:odeio|odio|detesto|acho|considero|chamo)\s+de\s+'
         r'|teto\s+(?:é|eh)\s+'
@@ -59,10 +95,21 @@ def _detect_mood(text):
     return Mood.NORMAL
 
 
+# ── URL Utilities ──
+
+
+# Matches http://, https://, or bare www. URLs, excluding angle brackets
+# and quotes that often delimit non-URL text.
 _URL_RE = re.compile(r'(https?://[^\s<>"]+|www\.[^\s<>"]+)', re.I)
 
 
 def _linkify(text):
+    """
+    Convert URLs in plain text into clickable HTML anchor tags.
+
+    Splits text at each URL match, escapes plain segments with html.escape(),
+    and wraps matched URLs in <a href="...">...</a> tags.
+    """
     parts = []
     last = 0
     for m in _URL_RE.finditer(text):
@@ -79,57 +126,55 @@ def _linkify(text):
 
 
 def _open_url(url):
+    """Open a URL in the system's default browser via xdg-open."""
     try:
         subprocess.run(["xdg-open", url], capture_output=True, timeout=5)
     except Exception:
         pass
 
 
-TOOL_BUBBLE_SIZE = 600
+# ── Tool Display Helpers ──
 
 
 def _tool_display_words(result):
+    """Map a tool execution result prefix to a friendly display phrase."""
     if result.startswith("run_command"):
-        cmd = result[len("run_command: "):].strip()
-        if cmd == "(ok, exit code 0)":
-            return model.phrases.pick("CMD_SUCCESS", "Comando executado! ^_^")
-        return f"Comando executado:\n{cmd[:TOOL_BUBBLE_SIZE]}"
+        return model.phrases.pick("CMD_SUCCESS", "Feito! ^_^")
     if result.startswith("open_url"):
-        url = result[len("open_url("):].rsplit(")", 1)[0] if "open_url(" in result else result
-        return f"URL aberta! {url[:80]}"
+        return "Abrindo! ^_^"
     if result.startswith("screenshot"):
-        return model.phrases.pick("SCREENSHOT_TAKEN", "Print tirado! Vou dar uma olhada... ^_^")
+        return model.phrases.pick("SCREENSHOT_TAKEN", "Deixa eu ver... ^_^")
     if result.startswith("listen_erro"):
-        return result[len("listen_erro:"):]
+        return model.phrases.pick("LISTENING", "Escutando! ^_^")
     if result.startswith("listen"):
-        return model.phrases.pick("LISTENING", "Escutando! Vou te dizer o que ouvi... ^_^")
+        return model.phrases.pick("LISTENING", "Escutando! ^_^")
     if result.startswith("write_file"):
-        return model.phrases.pick("FILE_SAVED", "Arquivo salvo! Feito! ^_^")
+        return model.phrases.pick("FILE_SAVED", "Salvo! ^_^")
     if result.startswith("list_files"):
-        content = result.split(": ", 1)[1] if ": " in result else result
-        path = result.split("(")[1].split(")")[0] if "(" in result else "~"
-        lines = content.strip().split("\n")
-        if len(lines) > 30:
-            content = "\n".join(lines[:30]) + f"\n... (+{len(lines)-30} itens)"
-        return f"Arquivos em ~{path.replace('~', '')}:\n{content}"
+        return "Pronto! ^_^"
     if result.startswith("read_file"):
-        content = result.split(": ", 1)[1] if ": " in result else result
-        path = result.split("(")[1].split(")")[0] if "(" in result else "?"
-        content = content[:TOOL_BUBBLE_SIZE]
-        if len(content) > TOOL_BUBBLE_SIZE:
-            content += "\n... (truncado)"
-        return f"Conteúdo de {path}:\n{content}"
-    return f"{model.phrases.pick('CMD_SUCCESS', 'Feito!')} {result[:100]}"
+        return "Entendi! ^_^"
+    return "Feito! ^_^"
 
 
 class ChatWindow(Gtk.Window):
+    """
+    Main chat dialog window.
+
+    Emits two custom signals:
+    - teto-speech:  (str, object) → text and Mood for the pet to speak
+    - alarm-command: (str,)       → raw user text containing alarm/stop words
+    """
 
     __gsignals__ = {
         "teto-speech": (GObject.SignalFlags.RUN_FIRST, None, (str, object)),
         "alarm-command": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
     }
 
+    # ── Initialization ──
+
     def __init__(self, parent=None):
+        """Build the chat window layout: message list, entry box, send + mic buttons."""
         super().__init__(title=f"Conversar com {model.PET_SHORT_NAME}", transient_for=parent)
         self.set_default_size(360, 420)
         self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
@@ -181,7 +226,17 @@ class ChatWindow(Gtk.Window):
                 who = model.PET_SHORT_NAME if h["role"] == "assistant" else "Você"
                 self._add_bubble(who, h["content"], "teto" if h["role"] == "assistant" else "user")
 
+    # ── Bubble Rendering ──
+
     def _add_bubble(self, who, text, cls):
+        """
+        Append a chat bubble to the message list.
+
+        Parameters:
+            who  – display name (e.g. "Você" or pet name)
+            text – message body (auto-linkified)
+            cls  – CSS-like class: "user" right-aligns, "teto" left-aligns
+        """
         row = Gtk.ListBoxRow()
         hbox = Gtk.Box(spacing=4)
         hbox.set_margin_start(8)
@@ -208,41 +263,61 @@ class ChatWindow(Gtk.Window):
         self.msg_list.add(row)
         self.msg_list.show_all()
 
+        # Auto-scroll to bottom
         adj = self.msg_list.get_parent().get_vadjustment()
         if adj:
             adj.set_value(adj.get_upper() - adj.get_page_size())
 
         return row
 
+    # ── Tool Execution ──
+
+    # Common verb/directory patterns reused across multiple tool-matching branches.
     _LIST_VERBS = r'(?:listar?|lista|mostra|mostre|exibir?|veja?|olha?)'
     _DIR_KEYWORDS = r'(?:pastas?|home|diretorio|dir|area)'
     _READ_VERBS = r'(?:ler|abrir|abra?|leia?|exibe?|pegar?|conteudo|mostra)'
 
     def _run_tool(self, text):
+        """
+        Parse user text and attempt to match a known tool command.
+
+        Checks are ordered by specificity/priority:
+          1. open_url   – direct URLs, named channels, known sites, generic "abre ..."
+          2. screenshot – screen capture keywords
+          3. listen     – desktop audio capture keywords
+          4. list_files – directory listing patterns
+          5. read_file  – file content reading patterns
+          6. write_file – file creation/save patterns
+          7. run_command – shell command / install patterns
+          8. system info – hardware/OS queries (only if tools are permitted)
+          9. app launch  – application name matching (only if tools are permitted)
+
+        Returns a result string on match, or None to fall through to AI.
+        """
         lower = text.lower().strip()
         cfg = config.load()
         permitted = any(cfg.get(k, False) for k in config.TOOL_KEYS)
 
-        # ── open_url (before read_file to avoid 'abra' clash) ─
+        # ── open_url (before read_file to avoid 'abra' clash) ──
         if permitted:
-            # 1) Explicit URLs
+            # 1) Explicit URLs – detect raw http(s) links
             m = re.search(r'(https?://\S+)', text)
             if m:
                 return self._exec("open_url", {"url": m.group(1)})
 
-            # 2) "abre/abra/abrir o canal do X [no youtube]"
+            # 2) "abre/abra/abrir o canal do X [no youtube]" – search YouTube channel
             m = re.search(
                 r'(?:abre|abra|abrir)\s+o\s+canal\s+(?:do|da)\s+(.+?)(?:\s*no\s+youtube)?\s*$',
                 text, re.I,
             )
             if m:
                 q = m.group(1).strip().rstrip(".,!?")
-                # strip trailing filler words
+                # Strip trailing filler words like "entao", "pf", "la", etc.
                 q = re.sub(r'\s+(?:entao|então|pf|por\s+favor|la|lá|ai|aí)\s*$', '', q, flags=re.I)
                 if q:
                     return self._exec("open_url", {"url": f"https://www.youtube.com/results?search_query={q.replace(' ', '+')}"})
 
-            # 3) "canal do X [no youtube]" / "youtuber X"
+            # 3) "canal do X [no youtube]" / "youtuber X" – shortcut for channel search
             m = re.search(
                 r'(?:canal\s+(?:do|da)\s+|youtube\s+(?:do|da)\s+|youtuber\s+)'
                 r'(.+?)(?:\s*no\s+youtube)?\s*$',
@@ -252,7 +327,7 @@ class ChatWindow(Gtk.Window):
                 q = m.group(1).strip().rstrip(".,!?")
                 return self._exec("open_url", {"url": f"https://www.youtube.com/results?search_query={q.replace(' ', '+')}"})
 
-            # 4) "quero/queria assistir/ver X [no youtube]"
+            # 4) "quero/queria assistir/ver X [no youtube]" – expressed desire to watch
             m = re.search(
                 r'quero\s+(?:assistir|ver)\s+(?:o\s+|a\s+)?(.+?)(?:\s*no\s+youtube)?\s*$',
                 text, re.I,
@@ -261,7 +336,7 @@ class ChatWindow(Gtk.Window):
                 q = m.group(1).strip().rstrip(".,!?")
                 return self._exec("open_url", {"url": f"https://www.youtube.com/results?search_query={q.replace(' ', '+')}"})
 
-            # 5) "abre/abra NOME conhecido (youtube, google, github, etc)" → open URL
+            # 5) "abre/abra NOME conhecido (youtube, google, github, etc)" → open known site URL
             known_sites = {
                 "youtube": "https://www.youtube.com",
                 "google": "https://www.google.com",
@@ -281,6 +356,7 @@ class ChatWindow(Gtk.Window):
                 "deepseek": "https://chat.deepseek.com",
             }
             site_keys = '|'.join(known_sites.keys())
+            # Match "abre youtube", "abra o github", "quero abrir google", etc.
             site_pattern = r'(?:abre|abra|abrir|pode\s+abrir|queria\s+abrir|quero\s+abrir|abre\s+ai|abre\s+lá)\s+' \
                           r'(?:(?:a|o|esse|esta|meu|minha)\s+)?(' + site_keys + r')'
             m = re.search(site_pattern, text, re.I)
@@ -289,16 +365,18 @@ class ChatWindow(Gtk.Window):
                 url = known_sites.get(site_key, f"https://www.{site_key}.com")
                 return self._exec("open_url", {"url": url})
 
-            # 6) "abre/abra NOME" (no "canal") → assume URL or search
+            # 6) "abre/abra NOME" (no "canal") → generic URL or Google search fallback
             if re.search(r'\b(?:site|pagina|link)\b', lower):
                 m = re.search(r'(?:abre|abra|abrir|acessa|acessar)\s+(?:o\s+|a\s+)?(.+)', text, re.I)
                 if m:
                     q = m.group(1).strip().rstrip(".,!?")
+                    # If it looks like a domain (has TLD), prepend https://; otherwise search
                     if not re.match(r'https?://', q):
                         q = f"https://{q}" if re.search(r'\.[a-z]{2,}', q) else f"https://www.google.com/search?q={q.replace(' ', '+')}"
                     return self._exec("open_url", {"url": q})
 
         # ── screenshot ────────────────────────────────────
+        # Match various Portuguese phrases for taking a screenshot
         if re.search(
             r'(?:\bprint\b|captura\s*de\s*tela|tira\s+foto|foto\s+da\s+tela|'
             r'\bscreenshot\b|mostra\s+a\s+tela|olha\s+a\s+tela|'
@@ -309,6 +387,7 @@ class ChatWindow(Gtk.Window):
             return self._exec("screenshot", {})
 
         # ── listen ─────────────────────────────────────────
+        # Match requests to listen to desktop audio / identify playing music
         if re.search(
             r'(?:escuta|ouve|ouvir|o\s+que\s+[eé]\s+que\s+ta\s+tocando|'
             r'que\s+musica|que\s+música|'
@@ -322,7 +401,7 @@ class ChatWindow(Gtk.Window):
             return self._exec("listen", {})
 
         # ── list files ────────────────────────────────────
-        # "o que tem [em/na/no/nas/nos] X" (NOT arquivo)
+        # "o que tem [em/na/no/nas/nos] X" – but NOT when talking about arquivo/documento
         if re.search(r'(?:o\s+)?(?:que|q)\s+tem\s+(?:e[mn]|na[rs]?|no[rs]?)\s+', lower) \
                 and not re.search(r'(?:arquivo|documento|texto|conteudo)\s', lower):
             m = re.search(r'(?:o\s+)?(?:que|q)\s+tem\s+(?:e[mn]|na[rs]?|no[rs]?)\s+(.+)', lower, re.I)
@@ -342,7 +421,7 @@ class ChatWindow(Gtk.Window):
                 and not re.search(r'(?:arquivo|documento|texto)', lower):
             return self._exec("list_files", {"path": "~"})
 
-        # "lista/veja [em/na] X" (simple path)
+        # "lista/veja [em/na] X" – simple path listing
         m = re.search(
             rf'^{self._LIST_VERBS}\s+(?:pra\s+mim\s+)?(?:o\s+)?(?:que\s+)?(?:tem\s+)?'
             rf'(?:em|na|no|nesse|nessa)\s+["\']?(.+?)["\']?$',
@@ -353,12 +432,12 @@ class ChatWindow(Gtk.Window):
             if raw and not re.search(r'(?:arquivo|documento|conteudo)', raw):
                 return self._exec("list_files", {"path": self._parse_path(raw)})
 
-        # "lista X" (single word path)
+        # "lista X" – single word path argument
         m = re.search(r'^(?:listar?|lista)\s+["\']?(\S+)["\']?$', text.strip(), re.I)
         if m:
             return self._exec("list_files", {"path": self._parse_path(m.group(1))})
 
-        # ── "leia/abra a pasta/home/diretorio" → list_files
+        # "leia/abra a pasta/home/diretorio" → redirect to list_files
         if re.search(r'(?:ler|abra?|leia?|abrir)\s+(?:a\s+|o\s+)?(?:pastas?|home|diretorio)', lower):
             m = re.search(r'(?:ler|abra?|leia?|abrir)\s+(?:a\s+|o\s+)?(?:pastas?|home|diretorio)\s+(.+)?$', lower)
             path = m.group(1).strip() if m and m.group(1) else "~"
@@ -367,6 +446,7 @@ class ChatWindow(Gtk.Window):
         # ── read file ─────────────────────────────────────
         if re.search(self._READ_VERBS, lower) \
                 and re.search(r'(?:arquivo|documento|texto|conteudo|\.\w{1,5}\s*$)', lower):
+            # Match quoted filename: "leia 'arquivo.txt'" or "abra o arquivo chamado 'foo'"
             m = re.search(
                 rf'{self._READ_VERBS}\s+(?:o\s+)?(?:arquivo\s+)?(?:chamado\s+)?'
                 rf'["\'](.+?)["\']',
@@ -374,6 +454,7 @@ class ChatWindow(Gtk.Window):
             )
             if m:
                 return self._exec("read_file", {"path": self._parse_path(m.group(1).strip())})
+            # Fallback: match unquoted single-word filename
             m = re.search(
                 rf'{self._READ_VERBS}\s+(?:o\s+)?(?:arquivo\s+)?(?:chamado\s+)?'
                 rf'(\S+)',
@@ -385,7 +466,7 @@ class ChatWindow(Gtk.Window):
                     return self._exec("read_file", {"path": self._parse_path(path)})
 
         # ── write file ────────────────────────────────────
-        # "cria/salva/escreve [um] arquivo X [com] Y"
+        # "cria/salva/escreve [um] arquivo X [com] Y" — quoted filename + content
         m = re.search(
             r'(?:cria|salva|escreve|criar)\s+(?:um\s+)?arquivo\s+["\']?(.+?)["\']?\s+'
             r'(?:com\s+(?:o\s+)?(?:conteudo|texto)?\s*)(.+)',
@@ -397,7 +478,7 @@ class ChatWindow(Gtk.Window):
                 "content": m.group(2).strip(),
             })
 
-        # "escreve EM/NO/NA X: Y"
+        # "escreve EM/NO/NA X: Y" — path after preposition, content after colon
         m = re.search(
             r'(?:escreve|salva)\s+(?:em|no|na)\s+["\']?(.+?)["\']?\s*:\s*(.+)',
             text, re.I | re.DOTALL,
@@ -450,6 +531,8 @@ class ChatWindow(Gtk.Window):
 
         # ── app launch ────────────────────────────────────
         if permitted:
+            # "abre/abra/inicia/roda X" — capture the app name from a variety of verb prefixes,
+            # stripping leading determiners / filler words before it.
             m = re.search(
                 r'(?:abre|abra|abrir|inicia|iniciar|roda|rodar|'
                 r'pode\s+abrir|poderia\s+abrir|queria\s+abrir|quero\s+abrir)\s+'
@@ -461,22 +544,32 @@ class ChatWindow(Gtk.Window):
             )
             if m:
                 app = m.group(1).strip().rstrip(".,!?")
-                # ignore generic words and URLs
+                # Guard against accidentally matching channel/site/URL patterns
                 if not re.search(r'(canal|site|youtube|https?://|\.[a-z]{2,})', lower) \
                         and app.lower() not in ("app", "site", "link", "pagina", "página", "isso", "isto", "aquilo", "coisa", "programa", "aplicativo", "meu", "minha", "meus", "minhas", "teu", "tua", "seu", "sua"):
                     return self._exec("run_command", {"command": f"({app} &)"})
 
         # ── fallback: try as command ──
         if permitted:
-            # git / mkdir / apt / pip etc
+            # Direct match for common CLI tools (git, mkdir, apt, pip, etc.)
             if re.search(r'^(?:git|mkdir|touch|cp|mv|rm|apt|pip|npm|yarn|docker|make|cmake|sudo)\s', text.strip()):
                 return self._exec("run_command", {"command": text.strip()})
 
         return None
 
+    # ── Path Resolution ──
+
     def _parse_path(self, raw):
+        """
+        Normalise a user-supplied path string to an absolute filesystem path.
+
+        Strips filler words and directory keywords, expands ``~``, and falls
+        back to case-insensitive matching via _resolve_ci.  Returns ``"~"``
+        when no specific path is identifiable.
+        """
         raw = raw.strip().rstrip(".,!?;:")
-        # strip filler words and directory keywords
+        # Strip leading filler words and directory keywords:
+        #   "minha pasta home", "meu diretorio", "a pasta", etc.
         raw = re.sub(
             r'^(?:(?:minha|meu|nossa|nosso|suas?|tuas?|a|o|as|os|da|do|das|dos|de|em|no|na|nos|nas|'
             r'pastas?|diretorio|dir|home|pasta)\s+)+',
@@ -499,8 +592,17 @@ class ChatWindow(Gtk.Window):
                 return resolved
         return raw
 
+    # ── Tool Executor ──
 
     def _exec(self, tool_name, args):
+        """
+        Execute a named tool by looking it up in the TOOLS registry.
+
+        Checks the config permission flag for the tool, resolves any ``path``
+        argument case-insensitively, invokes the tool's ``execute`` callback,
+        and formats the result with a tool-specific prefix for downstream
+        processing.
+        """
         cfg = config.load()
         tool_cfg_key = f"tool_{tool_name}"
         if not cfg.get(tool_cfg_key, False):
@@ -532,9 +634,13 @@ class ChatWindow(Gtk.Window):
         display_arg = args.get('path') or args.get('url') or '~'
         return f"{tool_name}({display_arg}): {result[:1000]}"
 
+    # Matches "TOOL: toolname | key=val | key=val" patterns in AI replies.
     _TOOL_RE = re.compile(r'TOOL\s*:\s*(\w+)(?:\s*\|\s*(.+))?', re.I)
 
+    # ── History Management ──
+
     def clear_history(self):
+        """Reset conversation history and re-show the greeting message."""
         self.history = []
         for row in list(self.msg_list.get_children()):
             self.msg_list.remove(row)
@@ -545,17 +651,35 @@ class ChatWindow(Gtk.Window):
             pass
 
     def add_message(self, text):
+        """Append an assistant message bubble and persist to history."""
         self._add_bubble(model.PET_SHORT_NAME, text, "teto")
         self.history.append({"role": "assistant", "content": text})
         _save_history(self.history)
 
+    # ── AI Callback ──
+
     def _call_ai_then_tool(self, text, depth=0, image_base64=None, silent=False):
+        """
+        Send user text to the AI provider and process the reply.
+
+        The AI reply is inspected for a ``TOOL:`` directive.  When found the
+        named tool is executed and the result is fed back into the AI (up to
+        ``depth`` 3 to avoid infinite loops).  When no tool is requested the
+        reply is displayed as a chat bubble and emitted as speech.
+
+        Parameters:
+            text         – the user / context message
+            depth        – recursion counter for tool call chaining
+            image_base64 – optional base64-encoded image for vision models
+            silent       – if True, suppresses the thinking bubble and entry lock
+        """
         if depth > 3:
             return model.phrases.pick("TOOL_LOOP", "Hmm, deu um loop nas ferramentas! >_<")
 
         if not silent:
             self.waiting = True
             self.entry.set_sensitive(False)
+            # Safety timeout: re-enable entry after 30 seconds if no reply arrives
             GLib.timeout_add_seconds(15, self._unlock_entry)
         thinking_row = self._add_bubble(model.PET_SHORT_NAME, "…", "teto") if not silent else None
         user_mood = _detect_mood(text)
@@ -569,6 +693,7 @@ class ChatWindow(Gtk.Window):
             if silent and not reply:
                 return
 
+            # Check for a TOOL directive in the AI's response
             m = self._TOOL_RE.search(reply) if reply else None
             if m:
                 tool_name = m.group(1).lower()
@@ -578,7 +703,7 @@ class ChatWindow(Gtk.Window):
                     if "=" in pair:
                         k, v = pair.split("=", 1)
                         v = v.strip()
-                        # strip trailing emotes like >_<, ^_^, :3, etc.
+                        # Strip trailing emotes/kaomoji from the value (e.g. >_<, ^_^, :3)
                         v = re.sub(r'\s*[>_<^:;)\]}\-]+\s*(?:[>_<^:;)\]}\-\d]+\s*)*$', '', v)
                         args[k.strip()] = v
 
@@ -650,7 +775,17 @@ class ChatWindow(Gtk.Window):
         else:
             ai.ask(text, self.history, callback=on_reply)
 
+    # ── Microphone STT ──
+
     def _on_mic_press(self, btn, event):
+        """
+        Start microphone recording on button press.
+
+        Records in a background thread for ``hold`` (30 s, released on button
+        release) or ``toggle`` (5 s, auto-stop) mode.  On successful capture
+        the audio is transcribed via ``ai.transcribe()`` and the result is
+        submitted as a chat message.
+        """
         cfg = config.load()
         if not cfg.get("mic_stt_enabled", False):
             self._add_bubble(model.PET_SHORT_NAME, "STT por microfone está desativado. Ative em Configurações > Áudio.", "teto")
@@ -681,6 +816,7 @@ class ChatWindow(Gtk.Window):
             elif wav:
                 log("STT: áudio capturado, transcrevendo...")
                 text = ai.transcribe(wav)
+                # Only accept transcription that contains at least one alphabetic character
                 if text and re.search(r'[a-zA-Záéíóúâêîôûãõçàèìòùäëïöüñ]', text):
                     log("STT: transcrição: %s", text)
                     GLib.idle_add(self.entry.set_text, text)
@@ -696,6 +832,7 @@ class ChatWindow(Gtk.Window):
         return True
 
     def _on_mic_release(self, btn, event):
+        """Stop microphone recording on button release (hold mode only)."""
         cfg = config.load()
         if cfg.get("mic_stt_mode", "") == "hold":
             log("STT: botão solto, parando gravação")
@@ -703,17 +840,38 @@ class ChatWindow(Gtk.Window):
                 self._stt_stop_event.set()
         return True
 
+    # ── Entry State ──
+
     def _safe_entry(self):
+        """Re-enable the text entry and clear the waiting flag."""
         self.waiting = False
         self.entry.set_sensitive(True)
 
     def _unlock_entry(self):
+        """
+        Safety timeout callback: unlock the entry if still waiting.
+
+        Fires after 15 seconds (two intervals via GLib.timeout_add_seconds)
+        to prevent permanent UI lock when an AI reply never arrives.
+        """
         if self.waiting:
             self._safe_entry()
             log("⚠ entrada destravada por segurança (30s)")
         return False
 
+    # ── Message Processing ──
+
     def _process_user_text(self, text):
+        """
+        Handle an incoming user message end-to-end.
+
+        Steps:
+          1. Add a user bubble and append to history.
+          2. Check for alarm/stop words and emit ``alarm-command`` if found.
+          3. Attempt keyword-based tool matching via ``_run_tool``.
+          4. On tool match: display feedback, optionally call AI with result.
+          5. On no tool match: send to AI for a conversational reply.
+        """
         text = text.strip()
         if not text or self.waiting:
             return
@@ -730,11 +888,14 @@ class ChatWindow(Gtk.Window):
             cfg = config.load()
             words = _tool_display_words(kw_result)
             is_data_tool = kw_result.startswith("list_files") or kw_result.startswith("read_file")
-            self._add_bubble(model.PET_SHORT_NAME, words, "teto")
-            self.history.append({"role": "assistant", "content": words})
-            _save_history(self.history)
-            if not is_data_tool:
-                self.emit("teto-speech", words, Mood.NORMAL)
+            using_phrases = cfg.get("ai_provider", config.PROVIDER_AUTO) == config.PROVIDER_PHRASES
+            if using_phrases:
+                self._add_bubble(model.PET_SHORT_NAME, words, "teto")
+                self.history.append({"role": "assistant", "content": words})
+                _save_history(self.history)
+                if not is_data_tool:
+                    self.emit("teto-speech", words, Mood.NORMAL)
+            else:
                 log("%s: %s", model.PET_SHORT_NAME, words)
 
             if cfg.get("ai_provider", config.PROVIDER_AUTO) != config.PROVIDER_PHRASES:
@@ -779,13 +940,14 @@ class ChatWindow(Gtk.Window):
                     self._call_ai_then_tool(
                         f"{text}\n\n[Resultado de ferramenta: {kw_result}]\n\n"
                         f"Responda naturalmente como amiga, comentando o resultado.",
-                        silent=True,
+                        silent=False,
                     )
             return
 
         self._call_ai_then_tool(text)
 
     def _on_send(self, _widget=None):
+        """Read the entry text, clear it, and process the message."""
         text = self.entry.get_text().strip()
         if not text or self.waiting:
             return
@@ -793,7 +955,17 @@ class ChatWindow(Gtk.Window):
         self._process_user_text(text)
 
 
+# ── Helpers ──
+
+
 def _resolve_ci(path):
+    """
+    Resolve a filesystem path with case-insensitive segment matching.
+
+    Walks each path component and compares against directory entries with
+    ``lower()``, allowing the pet to find files even when the user's casing
+    does not match the actual filesystem.
+    """
     if os.path.exists(path):
         return path
     parts = path.strip("/").split("/")

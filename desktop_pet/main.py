@@ -1,3 +1,10 @@
+"""
+Entry point for Mate Helper (Teto Pet) desktop pet application.
+
+Bootstraps the Python path, initialises GTK, and launches the main
+application window via TetoPet.
+"""
+
 import sys
 import os
 

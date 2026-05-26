@@ -1,5 +1,12 @@
+"""
+Text-to-Speech for Mate Helper.
+
+Provides multi-provider TTS with thread-safe playback and automatic
+fallback (Fish Audio → Edge-TTS → pyttsx3).  Audio is played through
+ffplay with configurable PulseAudio sink and volume.
+"""
+
 import os
-import signal
 import subprocess
 import tempfile
 import threading
@@ -10,6 +17,7 @@ _tts_lock = threading.Lock()
 _current_proc = None
 _proc_lock = threading.Lock()
 
+# Provider constants (mirror config.py to avoid circular imports).
 TTS_PROVIDER_AUTO = "auto"
 TTS_PROVIDER_FISH = "fish_audio"
 TTS_PROVIDER_EDGE = "edge_tts"
@@ -26,12 +34,18 @@ FISH_API_URL = "https://api.fish.audio/v1/tts"
 
 
 def _provider_order(provider):
+    """Return the ordered list of providers to try.
+
+    When *provider* is ``"auto"``, tries Fish Audio first, then
+    Edge-TTS, then pyttsx3.  Otherwise returns just *provider*.
+    """
     if provider == TTS_PROVIDER_AUTO:
         return [TTS_PROVIDER_FISH, TTS_PROVIDER_EDGE, TTS_PROVIDER_PYTTS]
     return [provider]
 
 
 def list_audio_devices():
+    """List available PulseAudio sinks (playback devices)."""
     try:
         result = subprocess.run(
             ["pactl", "list", "short", "sinks"],
@@ -53,6 +67,7 @@ def list_audio_devices():
 
 
 def _get_sink_description(name):
+    """Resolve a human-readable description for a PulseAudio sink name."""
     try:
         result = subprocess.run(
             ["pactl", "list", "sinks"],
@@ -70,6 +85,10 @@ def _get_sink_description(name):
 
 
 def _play_audio(path, device=None, volume=None):
+    """Play a WAV/MP3 file via ffplay with optional PulseAudio sink and volume.
+
+    Reads volume from config if not specified.
+    """
     global _current_proc
     if volume is None:
         try:
@@ -77,16 +96,20 @@ def _play_audio(path, device=None, volume=None):
             volume = _cfg.load().get("tts_volume", 100)
         except Exception:
             volume = 100
+
     env = os.environ.copy()
     if device:
         env["PULSE_SINK"] = device
+
     proc = subprocess.Popen(
-        ["ffplay", "-nodisp", "-autoexit", "-volume", str(volume), "-loglevel", "quiet", path],
+        ["ffplay", "-nodisp", "-autoexit", "-volume", str(volume),
+         "-loglevel", "quiet", path],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         env=env,
     )
     with _proc_lock:
         _current_proc = proc
+
     try:
         proc.wait(timeout=120)
     except subprocess.TimeoutExpired:
@@ -99,6 +122,7 @@ def _play_audio(path, device=None, volume=None):
 
 
 def stop_current_audio():
+    """Kill the currently playing audio, if any."""
     global _current_proc
     with _proc_lock:
         if _current_proc is not None:
@@ -111,11 +135,16 @@ def stop_current_audio():
 
 
 def is_playing():
+    """Return True if audio is currently being played."""
     with _proc_lock:
         return _current_proc is not None
 
 
+# ── Provider implementations ────────────────────────────────────
+
+
 def _speak_fish(text, reference_id, api_key, device):
+    """Synthesise speech via the Fish Audio REST API (streamed WAV)."""
     if not api_key:
         return False
     try:
@@ -129,7 +158,7 @@ def _speak_fish(text, reference_id, api_key, device):
         if reference_id:
             data["reference_id"] = reference_id
         resp = requests.post(
-            FISH_API_URL, headers=headers, json=data, stream=True, timeout=30
+            FISH_API_URL, headers=headers, json=data, stream=True, timeout=30,
         )
         if resp.status_code != 200:
             log("tts: fish audio erro %s: %s", resp.status_code, resp.text[:200])
@@ -151,6 +180,7 @@ def _speak_fish(text, reference_id, api_key, device):
 
 
 def _speak_edge(text, voice, device):
+    """Synthesise speech via edge-tts (Microsoft Edge online TTS)."""
     if not voice:
         return False
     try:
@@ -182,6 +212,7 @@ def _speak_edge(text, voice, device):
 
 
 def _speak_pyttsx3(text, voice):
+    """Synthesise speech offline via pyttsx3 (system TTS engine)."""
     try:
         import pyttsx3
         engine = pyttsx3.init()
@@ -202,11 +233,19 @@ def _speak_pyttsx3(text, voice):
         return False
 
 
+# ── Public API ──────────────────────────────────────────────────
+
+
 def speak(text, provider, voice_config, api_key=None, device=None):
+    """Synthesise *text* using the given (or auto-chosen) *provider*.
+
+    Returns True if at least one provider succeeded.
+    """
     with _tts_lock:
         for prov in _provider_order(provider):
             if prov == TTS_PROVIDER_FISH:
-                if _speak_fish(text, voice_config.get("fish_audio", ""), api_key, device):
+                if _speak_fish(text, voice_config.get("fish_audio", ""),
+                               api_key, device):
                     return True
             elif prov == TTS_PROVIDER_EDGE:
                 if _speak_edge(text, voice_config.get("edge_tts", ""), device):
@@ -218,6 +257,7 @@ def speak(text, provider, voice_config, api_key=None, device=None):
 
 
 def speak_async(text, provider, voice_config, api_key=None, device=None):
+    """Call *speak* in a daemon thread (non-blocking)."""
     threading.Thread(
         target=speak,
         args=(text, provider, voice_config, api_key, device),

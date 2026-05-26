@@ -1,4 +1,16 @@
-import sys
+"""
+AI provider abstraction for Mate Helper.
+
+Routes requests to the configured provider (Ollama, HuggingFace,
+Gemini, Groq, or built-in phrases), with automatic fallback in
+``auto`` mode (Groq → Gemini → HuggingFace → phrases).
+
+Also handles:
+  * Speech-to-text via Groq Whisper
+  * Ollama auto-start/stop lifecycle management
+  * DNS-resolve check before Gemini API calls
+"""
+
 import os
 import threading
 import socket
@@ -12,7 +24,7 @@ from desktop_pet import config
 from desktop_pet.models import model
 from desktop_pet.log import log
 
-# ── System prompts ────────────────────────────────────────
+# ── System prompts ──────────────────────────────────────────────
 
 SYSTEM = model.SYSTEM_PROMPT
 
@@ -37,25 +49,43 @@ TOOL_SYSTEM = (
 
 
 def ask(message, history=None, callback=None, tool_context=None, image_base64=None):
+    """Send *message* to the configured AI provider (or auto-detect)."""
     if not history:
         history = []
     p = config.load().get("ai_provider", config.PROVIDER_AUTO)
     return ask_with_provider(p, message, history, callback, tool_context, image_base64)
 
 
-def ask_with_provider(provider, message, history, callback=None, tool_context=None, image_base64=None):
+def ask_with_provider(provider, message, history,
+                      callback=None, tool_context=None, image_base64=None):
+    """Send *message* to a specific *provider*.
+
+    If *callback* is provided, runs the request in a daemon thread and
+    delivers the result via ``GLib.idle_add`` (safe for GTK).
+    """
     if not history:
         history = []
     if callback is None:
         return _run_provider(provider, message, history, tool_context, image_base64)
     thread = threading.Thread(
-        target=lambda: GLib.idle_add(callback, _run_provider(provider, message, history, tool_context, image_base64)),
+        target=lambda: GLib.idle_add(
+            callback,
+            _run_provider(provider, message, history, tool_context, image_base64),
+        ),
         daemon=True,
     )
     thread.start()
 
 
 def _run_provider(provider, message, history, tool_context=None, image_base64=None):
+    """Dispatch to the correct provider implementation.
+
+    Fallback chain for ``auto``:
+      1. Groq (fast, cheap)
+      2. Gemini (free tier, good quality)
+      3. HuggingFace (free, slow)
+      4. Built-in phrases (offline, no API key needed)
+    """
     msg = message
     if tool_context:
         msg = f"{message}\n\n[Ferramenta usada: {tool_context}]"
@@ -94,10 +124,13 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
             return reply
         key = config.load().get("hf_token", "")
         if not key:
-            return "Hmm, você selecionou HuggingFace mas não configurou o token! 🛡️\nVá no menu em Configurações > Inteligência > Configurar HuggingFace... pra pegar um token grátis em huggingface.co/settings/tokens"
+            return ("Hmm, você selecionou HuggingFace mas não configurou o "
+                    "token! Vá no menu em Configurações > Inteligência > "
+                    "Configurar HuggingFace... pra pegar um token grátis em "
+                    "huggingface.co/settings/tokens")
         return "HuggingFace não respondeu. Pode ser cota esgotada ou token inválido."
 
-    if provider == "gemini":
+    if provider == config.PROVIDER_GEMINI:
         reply = _ask_gemini(msg, history, image_base64)
         if reply:
             if not reply.startswith("TOOL:"):
@@ -105,8 +138,11 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
             return reply
         key = config.load().get("gemini_key", "")
         if not key:
-            return "Hmm, você selecionou Gemini mas não configurou a chave! 🛡️\nVá no menu e clique em **Configurar Gemini** pra pegar uma chave grátis!"
-        return "Gemini não respondeu. Pode ser cota esgotada ou chave inválida. Tenta outra chave em Configurar Gemini."
+            return ("Hmm, você selecionou Gemini mas não configurou a chave! "
+                    "Vá no menu e clique em **Configurar Gemini** pra pegar "
+                    "uma chave grátis!")
+        return ("Gemini não respondeu. Pode ser cota esgotada ou chave "
+                "inválida. Tenta outra chave em Configurar Gemini.")
 
     if provider == config.PROVIDER_GROQ:
         reply = _ask_groq(msg, history, image_base64)
@@ -115,7 +151,9 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
             return reply
         key = config.load().get("groq_key", "")
         if not key:
-            return "Hmm, você selecionou Groq mas não configurou a chave! 🛡️\nVá no menu em **Configurar Groq...** pra pegar uma chave grátis!"
+            return ("Hmm, você selecionou Groq mas não configurou a chave! "
+                    "Vá no menu em **Configurar Groq...** pra pegar uma "
+                    "chave grátis!")
         return "Groq não respondeu. Pode ser cota esgotada ou chave inválida."
 
     f = model.phrases.get_fallback(msg, history)
@@ -123,7 +161,14 @@ def _run_provider(provider, message, history, tool_context=None, image_base64=No
     return f
 
 
+# ── DNS resolution check ────────────────────────────────────────
+
+
 def _resolve(host, timeout=3):
+    """Check whether *host* is resolvable (system DNS first, then
+    Cloudflare DoH as fallback).  Used before hitting the Gemini API
+    so we can give a clearer offline error.
+    """
     try:
         socket.setdefaulttimeout(timeout)
         socket.gethostbyname(host)
@@ -145,17 +190,28 @@ def _resolve(host, timeout=3):
     return False
 
 
+# ── Message builder ─────────────────────────────────────────────
+
+
 def _build_messages(history, message):
+    """Build the OpenAI-style messages list for API calls.
+
+    Injects system prompt, user name/bio, and tool-use instructions
+    when the relevant permission flags are enabled.
+    """
     cfg = config.load()
     sys_msg = SYSTEM
     user_name = cfg.get("user_name", "").strip()
     user_bio = cfg.get("user_bio", "").strip()
     if user_name:
-        sys_msg += f"\n\nO usuário se chama {user_name}. SEMPRE o trate por {user_name} e nunca se esqueça do nome dele(a)."
+        sys_msg += (f"\n\nO usuário se chama {user_name}. "
+                    f"SEMPRE o trate por {user_name} e nunca se esqueça "
+                    f"do nome dele(a).")
     if user_bio:
         sys_msg += f"\nInformações sobre o usuário: {user_bio}"
     if any(cfg.get(k, False) for k in config.TOOL_KEYS):
         sys_msg += "\n\n" + TOOL_SYSTEM
+
     msgs = [{"role": "system", "content": sys_msg}]
     for h in history[-8:]:
         msgs.append({"role": h["role"], "content": h["content"]})
@@ -163,10 +219,11 @@ def _build_messages(history, message):
     return msgs
 
 
-# ─── Ollama ─────────────────────────────────────────────
+# ── Ollama ──────────────────────────────────────────────────────
 
 
 def _ask_ollama(message, history):
+    """Send a chat request to a local Ollama instance."""
     model = _ollama_model()
     if not model:
         return None
@@ -177,6 +234,11 @@ def _ask_ollama(message, history):
 
 
 def _ollama_model():
+    """Pick the best available Ollama model.
+
+    Prefers the user's configured model, otherwise selects the
+    largest model (by file size) from the local list.
+    """
     cfg = config.load()
     preferred = cfg.get("ollama_model", "").strip()
     try:
@@ -199,11 +261,16 @@ def _ollama_model():
 
 
 def _ollama_chat(model, messages):
+    """Call Ollama's ``/api/chat`` endpoint and strip common name prefixes."""
     try:
         resp = requests.post(
             "http://localhost:11434/api/chat",
-            json={"model": model, "messages": messages, "stream": False,
-                  "options": {"num_predict": 200, "temperature": 0.8}},
+            json={
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "options": {"num_predict": 200, "temperature": 0.8},
+            },
             timeout=30,
         )
         if resp.status_code == 200:
@@ -219,17 +286,19 @@ def _ollama_chat(model, messages):
     return None
 
 
-# ─── Hugging Face ─────────────────────────────────────────
+# ── Hugging Face ────────────────────────────────────────────────
 
 
 def _ask_hf(message, history):
+    """Send a chat completion request via HuggingFace Inference API.
+
+    Tries ``katanemo/Arch-Router-1.5B`` (fast, free).
+    """
     hf_token = config.load().get("hf_token", "")
     if not hf_token:
         return None
 
-    models = [
-        "katanemo/Arch-Router-1.5B",
-    ]
+    models = ["katanemo/Arch-Router-1.5B"]
 
     msgs = _build_messages(history, message)
     chat_msgs = [m for m in msgs if m["role"] != "system"]
@@ -277,7 +346,7 @@ def _ask_hf(message, history):
     return None
 
 
-# ─── Gemini ────────────────────────────────────────────────
+# ── Gemini ──────────────────────────────────────────────────────
 
 GEMINI_MODELS = [
     "gemini-2.5-flash",
@@ -287,6 +356,9 @@ GEMINI_MODELS = [
 
 
 def _ask_gemini(message, history, image_base64=None):
+    """Send a request to the Gemini API with system instruction and
+    optional image input.  Tries models in GEMINI_MODELS order.
+    """
     key = config.load().get("gemini_key", "")
     if not key:
         return None
@@ -305,7 +377,7 @@ def _ask_gemini(message, history, image_base64=None):
             "parts": [
                 {"inlineData": {"mimeType": "image/png", "data": image_base64}},
                 {"text": message},
-            ]
+            ],
         }
     else:
         user_part = {"parts": [{"text": message}]}
@@ -319,7 +391,8 @@ def _ask_gemini(message, history, image_base64=None):
     for model in GEMINI_MODELS:
         try:
             resp = requests.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}",
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model}:generateContent?key={key}",
                 json={
                     "contents": contents,
                     "systemInstruction": {"parts": [{"text": sys_msg}]},
@@ -336,14 +409,13 @@ def _ask_gemini(message, history, image_base64=None):
                 if candidates:
                     parts = candidates[0].get("content", {}).get("parts", [])
                     if parts:
-                        text = parts[0].get("text", "")
-                        return text
-            elif resp.status_code == 429:
+                        return parts[0].get("text", "")
+            elif resp.status_code in (429, 404):
                 continue
             elif resp.status_code == 403:
-                return "Sua chave Gemini parece inválida ou expirou. Vá em Configurar Gemini e cole uma chave nova grátis em https://aistudio.google.com/apikey"
-            elif resp.status_code == 404:
-                continue
+                return ("Sua chave Gemini parece inválida ou expirou. "
+                        "Vá em Configurar Gemini e cole uma chave nova "
+                        "grátis em https://aistudio.google.com/apikey")
             else:
                 continue
         except requests.RequestException as e:
@@ -353,13 +425,17 @@ def _ask_gemini(message, history, image_base64=None):
     return None
 
 
-# ─── Groq ──────────────────────────────────────────────────
+# ── Groq ────────────────────────────────────────────────────────
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 
 def _ask_groq(message, history, image_base64=None):
+    """Send a chat completion request to Groq (fast inference API).
+
+    Switches to a vision-capable model when *image_base64* is provided.
+    """
     key = config.load().get("groq_key", "")
     if not key:
         return None
@@ -380,7 +456,7 @@ def _ask_groq(message, history, image_base64=None):
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/png;base64,{image_base64}"
+                                "url": f"data:image/png;base64,{image_base64}",
                             },
                         },
                     ],
@@ -403,8 +479,7 @@ def _ask_groq(message, history, image_base64=None):
             timeout=15,
         )
         if resp.status_code == 200:
-            text = resp.json()["choices"][0]["message"]["content"].strip()
-            return text
+            return resp.json()["choices"][0]["message"]["content"].strip()
         elif resp.status_code == 429:
             log("Groq: cota esgotada (429)")
             return None
@@ -419,12 +494,21 @@ def _ask_groq(message, history, image_base64=None):
         return None
 
 
+# ── Speech-to-text (Groq Whisper) ───────────────────────────────
+
+
 def transcribe(audio_path):
+    """Transcribe a WAV file using Groq Whisper (whisper-large-v3-turbo).
+
+    Returns the transcribed text, or None on failure.
+    The audio file is deleted after upload.
+    """
     key = config.load().get("groq_key", "")
     if not key:
         return None
     if not audio_path or not os.path.exists(audio_path):
         return None
+
     try:
         with open(audio_path, "rb") as f:
             files = {"file": (os.path.basename(audio_path), f, "audio/wav")}
@@ -436,6 +520,7 @@ def transcribe(audio_path):
                 timeout=30,
             )
         os.unlink(audio_path)
+
         if resp.status_code == 200:
             text = resp.json().get("text", "").strip()
             return text if text else None
@@ -453,12 +538,16 @@ def transcribe(audio_path):
         return None
 
 
-# ─── Ollama auto-management ────────────────────────────────
+# ── Ollama auto-management ──────────────────────────────────────
 
 _ollama_started_by_us = False
 
 
 def ollama_ensure_running():
+    """Start the local Ollama server if it is not already running.
+
+    Returns True once the API responds at localhost:11434.
+    """
     global _ollama_started_by_us
 
     try:
@@ -496,12 +585,10 @@ def ollama_ensure_running():
 
 
 def ollama_stop():
+    """Kill the Ollama server if we started it."""
     global _ollama_started_by_us
     if not _ollama_started_by_us:
         return
     log("Stopping Ollama...")
     subprocess.run(["pkill", "ollama"], capture_output=True)
     _ollama_started_by_us = False
-
-
-

@@ -1,8 +1,15 @@
-import math
+"""
+Tool functions exposed to the AI assistant for computer control.
+
+Provides safe wrappers around file I/O, command execution,
+screenshot capture (with multi-backend fallback), and desktop
+audio monitoring.  The ``TOOLS`` dict and ``TOOL_KEYWORDS`` dict
+drive the assistant's tool-use interface.
+"""
+
 import os
 import io
 import re
-import shlex
 import base64
 import array
 import subprocess
@@ -20,6 +27,8 @@ MAX_FILE_CHARS = 2000
 MAX_OUTPUT_CHARS = 3000
 CMD_TIMEOUT = 30
 
+# ── Dangerous-command detection ─────────────────────────────────
+
 DANGEROUS_PATTERNS = [
     r'\brm\s+-rf\s+/\s*$',
     r'\brm\s+-rf\s+--no-preserve-root\b',
@@ -33,11 +42,11 @@ DANGEROUS_PATTERNS = [
 ]
 DANGEROUS_RE = re.compile('|'.join(DANGEROUS_PATTERNS))
 
-
-# ─── Funções-ferramenta ─────────────────────────────────
+# ── Tool implementations ────────────────────────────────────────
 
 
 def read_file(path):
+    """Read and return the contents of a text file (truncated to MAX_FILE_CHARS)."""
     expanded = os.path.expanduser(path)
     if not os.path.exists(expanded):
         return f"Erro: arquivo não encontrado: {path}"
@@ -60,7 +69,7 @@ MAX_LIST_ITEMS = 60
 
 
 def list_files(path="~"):
-    """Lista arquivos/pastas em um diretório (máx 60 itens)."""
+    """List files and directories in *path* (max 60 entries)."""
     expanded = os.path.expanduser(path)
     if not os.path.exists(expanded):
         return f"Erro: pasta não encontrada: {path}"
@@ -82,7 +91,16 @@ def list_files(path="~"):
 
 
 def screenshot():
-    # Try PIL (X11)
+    """Capture a screenshot and return a base64-encoded PNG.
+
+    Tries, in order:
+      1. PIL ImageGrab (X11)
+      2. ``grim`` (wlroots Wayland)
+      3. ``gnome-screenshot`` (GNOME Wayland)
+      4. ``import`` (ImageMagick, X11)
+      5. ``spectacle`` (KDE Wayland)
+    """
+    # PIL — works on X11 via Xlib.
     try:
         img = ImageGrab.grab()
         buf = io.BytesIO()
@@ -91,68 +109,43 @@ def screenshot():
     except Exception:
         pass
 
-    # Try grim (Wayland wlroots)
+    # grim — wlroots-based compositors.
     try:
-        result = subprocess.run(
-            ["grim", "-"], capture_output=True, timeout=5
-        )
+        result = subprocess.run(["grim", "-"], capture_output=True, timeout=5)
         if result.returncode == 0:
             return base64.b64encode(result.stdout).decode()
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # Try gnome-screenshot (GNOME Wayland)
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-            tmp = f.name
-        subprocess.run(
-            ["gnome-screenshot", "-f", tmp], capture_output=True, timeout=5
-        )
-        if os.path.getsize(tmp) > 0:
-            with open(tmp, "rb") as f:
-                data = base64.b64encode(f.read()).decode()
+    # gnome-screenshot — GNOME on Wayland.
+    for cmd_name, cmd_args in [
+        ("gnome-screenshot", ["gnome-screenshot", "-f"]),
+        ("import", ["import", "-window", "root"]),
+        ("spectacle", ["spectacle", "-b", "-n", "-o"]),
+    ]:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                tmp = f.name
+            subprocess.run(
+                cmd_args + [tmp], capture_output=True, timeout=5
+            )
+            if os.path.getsize(tmp) > 0:
+                with open(tmp, "rb") as f:
+                    data = base64.b64encode(f.read()).decode()
+                os.unlink(tmp)
+                return data
             os.unlink(tmp)
-            return data
-        os.unlink(tmp)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    # Try import (ImageMagick, X11)
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-            tmp = f.name
-        subprocess.run(
-            ["import", "-window", "root", tmp], capture_output=True, timeout=5
-        )
-        if os.path.getsize(tmp) > 0:
-            with open(tmp, "rb") as f:
-                data = base64.b64encode(f.read()).decode()
-            os.unlink(tmp)
-            return data
-        os.unlink(tmp)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
-    # Try spectacle (KDE)
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
-            tmp = f.name
-        subprocess.run(
-            ["spectacle", "-b", "-n", "-o", tmp], capture_output=True, timeout=5
-        )
-        if os.path.getsize(tmp) > 0:
-            with open(tmp, "rb") as f:
-                data = base64.b64encode(f.read()).decode()
-            os.unlink(tmp)
-            return data
-        os.unlink(tmp)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
 
     return "Não consegui capturar a tela. Tenta instalar: grim (Wayland) ou gnome-screenshot"
 
 
 def run_command(command):
+    """Execute *command* via ``bash -c`` with safety and timeout constraints.
+
+    Blocks destructive patterns via DANGEROUS_RE.
+    """
     if DANGEROUS_RE.search(command):
         return "Comando bloqueado por segurança (parece destrutivo demais)"
 
@@ -177,6 +170,7 @@ def run_command(command):
 
 
 def write_file(path, content):
+    """Write *content* to *path*, creating parent directories as needed."""
     expanded = os.path.expanduser(path)
     parent = os.path.dirname(expanded)
     if parent and not os.path.exists(parent):
@@ -193,7 +187,7 @@ def write_file(path, content):
 
 
 def open_url(url):
-    import subprocess
+    """Open *url* in the system-default browser via ``xdg-open``."""
     try:
         subprocess.run(["xdg-open", url], capture_output=True, timeout=5)
         return f"URL aberta: {url}"
@@ -201,7 +195,11 @@ def open_url(url):
         return f"Erro ao abrir URL: {e}"
 
 
+# ── Audio capture ───────────────────────────────────────────────
+
+
 def list_mic_sources():
+    """Return a list of PulseAudio source names (excluding monitors)."""
     try:
         result = subprocess.run(
             ["pactl", "list", "sources", "short"],
@@ -219,6 +217,11 @@ def list_mic_sources():
 
 
 def listen_mic(device=None, duration=5, stop_event=None):
+    """Record from a microphone, apply VAD (Voice Activity Detection)
+    if available, and return a WAV file path or an error string.
+
+    VAD filters out pure silence before sending to Whisper STT.
+    """
     raw = None
     try:
         if not device:
@@ -226,14 +229,17 @@ def listen_mic(device=None, duration=5, stop_event=None):
             if not mics:
                 return "Erro: nenhum microfone encontrado"
             device = mics[0]
+
         raw = tempfile.NamedTemporaryFile(suffix=".raw", delete=False)
         raw.close()
+
         fh = open(raw.name, "wb")
         proc = subprocess.Popen(
             ["parec", "--device", device, "--format=s16le",
              "--rate=16000", "--channels=1", "--raw"],
             stdout=fh, stderr=subprocess.DEVNULL,
         )
+
         if stop_event:
             stop_event.wait(timeout=duration)
             proc.kill()
@@ -244,17 +250,19 @@ def listen_mic(device=None, duration=5, stop_event=None):
                 proc.kill()
         proc.wait()
         fh.close()
+
         if not os.path.exists(raw.name) or os.path.getsize(raw.name) < 100:
             os.unlink(raw.name)
             return "Erro: áudio muito curto"
-        # VAD (Voice Activity Detection) — evita enviar ruído pro Whisper
+
+        # VAD — reject pure-noise recordings.
         if HAS_WEBRTCVAD:
             try:
                 data = open(raw.name, "rb").read()
                 vad = webrtcvad.Vad(2)
                 samples = array.array('h')
                 samples.frombytes(data)
-                frame_len = 480  # 30ms @ 16kHz
+                frame_len = 480  # 30 ms @ 16 kHz
                 total = len(samples) // frame_len
                 if total > 0:
                     speech_frames = 0
@@ -268,6 +276,7 @@ def listen_mic(device=None, duration=5, stop_event=None):
                         return "Erro: áudio parece ruído (VAD)"
             except Exception:
                 pass
+
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.close()
         ret = subprocess.run(
@@ -280,6 +289,7 @@ def listen_mic(device=None, duration=5, stop_event=None):
             os.unlink(tmp.name)
             return "Erro: falha ao converter áudio para WAV"
         return tmp.name
+
     except (FileNotFoundError, OSError) as e:
         if raw and os.path.exists(raw.name):
             os.unlink(raw.name)
@@ -287,6 +297,11 @@ def listen_mic(device=None, duration=5, stop_event=None):
 
 
 def listen(duration=8):
+    """Record desktop audio output (monitor source) for *duration* seconds.
+
+    Returns a WAV file path, or an error string.  Includes a simple
+    RMS-based silence detection to avoid sending silence to Whisper.
+    """
     raw = None
     try:
         result = subprocess.run(
@@ -299,6 +314,7 @@ def listen(duration=8):
                 parts = line.split()
                 if len(parts) >= 2:
                     monitors.append((parts[1], "SUSPENDED" not in line))
+
         if not monitors:
             return "Erro: nenhuma fonte de áudio monitor encontrada"
 
@@ -323,11 +339,11 @@ def listen(duration=8):
             os.unlink(raw.name)
             return "Erro: áudio capturado muito curto"
 
-        # Detecta silêncio — se o RMS for muito baixo, não vale enviar pro Whisper
+        # RMS-based silence detection.
         try:
             data = open(raw.name, "rb").read()
             samples = array.array('h')
-            samples.frombytes(data[:200000])  # até ~100k samples (6s de 16kHz)
+            samples.frombytes(data[:200000])
             if samples:
                 rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
                 if rms < 100:
@@ -348,11 +364,14 @@ def listen(duration=8):
             os.unlink(tmp.name)
             return "Erro: falha ao converter áudio para WAV"
         return tmp.name
+
     except (FileNotFoundError, OSError) as e:
         if raw and os.path.exists(raw.name):
             os.unlink(raw.name)
         return f"Erro ao capturar áudio: {e}"
 
+
+# ── Tool registry ───────────────────────────────────────────────
 
 TOOLS = {
     "read_file": {
