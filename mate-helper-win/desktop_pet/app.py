@@ -33,7 +33,7 @@ from desktop_pet import tts as tts_mod
 from desktop_pet.settings_window import SettingsWindow
 
 
-CHAR_SCALE = 5
+CHAR_SCALE = 6
 CHAR_Y = 20
 BUBBLE_W = 190
 BUBBLE_PAD = 12

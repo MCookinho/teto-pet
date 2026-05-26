@@ -479,17 +479,19 @@ notebook tab label {
                             lambda: self.cfg.get("ollama_model", ollama_models[0] if ollama_models else ""),
                             _ollama)
 
-        self._sep(ai_box)
-        self._section(ai_box, self._("settings_profile_section"))
-        self._desc(ai_box, self._("settings_profile_desc"))
+        box.pack_start(ai_box, False, False, 0)
 
-        self._btn_row(ai_box, self._("settings_my_profile"), self._("settings_edit_profile"),
+        self._sep(box)
+        self._section(box, self._("settings_profile_section"))
+        self._desc(box, self._("settings_profile_desc"))
+
+        self._btn_row(box, self._("settings_my_profile"), self._("settings_edit_profile"),
                       self._("settings_profile_btn_desc"),
                       lambda *a: self.parent._setup_profile())
 
-        self._sep(ai_box)
-        self._section(ai_box, self._("settings_permissions_section"))
-        self._desc(ai_box, self._("settings_permissions_desc"))
+        self._sep(box)
+        self._section(box, self._("settings_permissions_section"))
+        self._desc(box, self._("settings_permissions_desc"))
 
         for key, label in [
             ("tool_read_file", self._("menu_perm_read_file")),
@@ -505,9 +507,8 @@ notebook tab label {
                     self.cfg[k] = state
                     self._save()
                 return cb
-            self._switch_row(ai_box, label, None, key, make_cb(key))
+            self._switch_row(box, label, None, key, make_cb(key))
 
-        box.pack_start(ai_box, False, False, 0)
         self._refresh_inteligencia_visibility()
         return box
 
